@@ -1,0 +1,38 @@
+import { NextResponse } from "next/server";
+import { normalize } from "viem/ens";
+import { REBUTTAL_REASONS, digest, holdsRebuttalRole, rebuttalMessage, verifyRebuttalSignature } from "@herd/guard";
+import { PUBLIC_MODE, reader } from "../../../lib/server";
+
+const hex = (k: string) => (k.startsWith("0x") ? k : `0x${k}`) as `0x${string}`;
+
+/** Filed by the holder of the merchant's herd.rebuttal role. It only queues a probe; it never unblocks. */
+export async function POST(req: Request) {
+  if (PUBLIC_MODE) return NextResponse.json({ error: "rebuttal desk is not public" }, { status: 403 });
+  const b = (await req.json()) as { ens: string; reason: string; filedAt: number; signer: `0x${string}`; signature: string };
+  if (!REBUTTAL_REASONS.includes(b.reason as never)) return NextResponse.json({ error: "unknown reason" }, { status: 400 });
+
+  const r = reader();
+  const decl = await r.ens.fetch(b.ens);
+  if (!decl) return NextResponse.json({ error: "name has no declaration" }, { status: 404 });
+
+  const row = { owner: "", payee: decl.payTo, ens: b.ens, reason: b.reason, evidenceHash: digest(`${b.reason}:${b.filedAt}`), filedAt: b.filedAt, signer: b.signer, signature: b.signature, episodeStart: 0 };
+  if (!(await verifyRebuttalSignature(r.ns, row).catch(() => false))) return NextResponse.json({ error: "bad signature" }, { status: 403 });
+  const resolver = await r.client.getEnsResolver({ name: normalize(b.ens) });
+  if (!(await holdsRebuttalRole(r.client, resolver, b.signer))) {
+    return NextResponse.json({ error: "this wallet holds no role on the merchant's resolver" }, { status: 403 });
+  }
+  const { entityKey } = await r.arkiv.writeRebuttal(hex(process.env.PROBER_KEY!), row, r.params.reportTtlSec);
+  return NextResponse.json({ status: "filed", entityKey });
+}
+
+/** The exact text the wallet must sign. */
+export async function GET(req: Request) {
+  const u = new URL(req.url);
+  const ens = u.searchParams.get("ens") ?? "";
+  const reason = u.searchParams.get("reason") ?? "";
+  const filedAt = Number(u.searchParams.get("filedAt"));
+  const r = reader();
+  const decl = await r.ens.fetch(ens);
+  if (!decl) return NextResponse.json({ error: "name has no declaration" }, { status: 404 });
+  return NextResponse.json({ message: rebuttalMessage({ ns: r.ns, ens, payee: decl.payTo, reason, evidenceHash: digest(`${reason}:${filedAt}`), filedAt }) });
+}

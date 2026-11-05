@@ -1,0 +1,14 @@
+{
+  "name": "@herd/merchant",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": "./src/merchant.ts",
+  "engines": { "node": "22.x" },
+  "dependencies": {
+    "@x402/core": "2.30.0",
+    "@x402/hedera": "2.30.0",
+    "@x402/hono": "2.30.0",
+    "hono": "^4.13.16"
+  }
+}

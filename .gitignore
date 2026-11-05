@@ -1,0 +1,13 @@
+node_modules/
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-*
+*.db
+.next/
+.vercel/
+dist/
+Herd Immunity PRDv2.md
+.show*.log
+.herd/

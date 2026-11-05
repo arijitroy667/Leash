@@ -1,0 +1,17 @@
+[
+ {"id":"S1","standing":"ESTABLISHED","b":0,"L":0,"D":0.60,"g":4,"A":0.05,"s":0,"t":0,"declaredMax":1,"badClusters":0,"R":3.6,"limit":0.30,"final":"ALLOW"},
+ {"id":"S2","standing":"NEW","b":0,"L":0,"D":0,"g":0,"A":0.005,"s":0,"t":0,"declaredMax":1,"badClusters":0,"R":27.5,"limit":0.01,"final":"ALLOW"},
+ {"id":"S3","standing":"NEW","b":0,"L":0,"D":0,"g":0,"A":0.05,"s":0,"t":0,"declaredMax":1,"badClusters":0,"R":42.5,"limit":0.01,"final":"ESCALATE"},
+ {"id":"S4","standing":"NEW","b":0.55,"L":0.005,"D":0,"g":0,"A":0.005,"s":0,"t":0,"declaredMax":1,"badClusters":1,"R":42.0,"limit":0.01,"final":"ESCALATE"},
+ {"id":"S5","standing":"NEW","after":"BLOCKED","b":1.10,"L":0.01,"D":0,"g":0,"A":0.005,"s":0,"t":0,"declaredMax":1,"badClusters":2,"R":50.8,"limit":0.01,"final":"DENY"},
+ {"id":"S6","standing":"ESTABLISHED","b":0.80,"L":0.05,"D":0.60,"g":4,"A":0.05,"s":0,"t":0,"declaredMax":1,"badClusters":1,"R":21.6,"limit":0.30,"final":"ALLOW"},
+ {"id":"S7","standing":"ESTABLISHED","b":0,"L":0,"D":0.10,"g":3,"A":0.90,"s":0,"t":0,"declaredMax":1,"badClusters":0,"R":23.3,"limit":0.05,"final":"ESCALATE"},
+ {"id":"S8","standing":"PROBATION","b":0,"L":0,"D":0.05,"g":1,"A":0.03,"s":1,"t":0,"declaredMax":1,"badClusters":0,"R":29.7,"limit":0.05,"final":"ALLOW"},
+ {"id":"S9","standing":"PROBATION","b":0,"L":0,"D":0.20,"g":3,"A":0.03,"s":1,"t":0,"declaredMax":1,"badClusters":0,"R":18.1,"limit":0.05,"final":"ALLOW"},
+ {"id":"S10","standing":"PROBATION","b":0,"L":0,"D":0,"g":0,"A":0.50,"s":3,"t":1,"declaredMax":1,"badClusters":0,"R":50.0,"limit":0.017,"final":"ESCALATE"},
+ {"id":"S11","standing":"ESTABLISHED","b":0,"L":0,"D":0.60,"g":4,"A":0.10,"s":0,"t":0,"declaredMax":1,"badClusters":0,"R":5.3,"limit":0.30,"final":"ALLOW"},
+ {"id":"S12","standing":"ESTABLISHED","b":0,"L":0,"D":0.60,"g":4,"A":0.40,"s":0,"t":0,"declaredMax":1,"badClusters":0,"R":14.9,"limit":0.30,"final":"ESCALATE"},
+ {"id":"S13","standing":"PROBATION","b":0,"L":0,"D":0,"g":0,"A":0.005,"s":1,"t":0,"declaredMax":1,"badClusters":0,"R":32.0,"limit":0.05,"final":"ALLOW"},
+ {"id":"S14","standing":"PROBATION","b":0,"L":0,"D":0,"g":0,"A":0.03,"s":1,"t":0,"declaredMax":1,"badClusters":0,"R":47.0,"limit":0.05,"final":"ESCALATE"},
+ {"id":"S15","standing":"NEW","b":1,"L":0.50,"D":0,"g":0,"A":0.05,"s":0,"t":0,"declaredMax":1,"badClusters":1,"R":79.6,"limit":0.01,"final":"ESCALATE"}
+]

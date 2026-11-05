@@ -1,0 +1,27 @@
+{
+  "name": "herd",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "packageManager": "pnpm@10.28.0",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "wallets:create": "tsx apps/demo/src/setup/create-wallets.ts",
+    "wallets:fund": "tsx apps/demo/src/setup/fund-wallets.ts",
+    "wallets:check": "tsx apps/demo/src/setup/check-wallets.ts",
+    "hcs:create": "tsx apps/demo/src/setup/create-topic.ts",
+    "ens:setup": "tsx apps/demo/src/setup/ens-setup.ts",
+    "merchants": "tsx apps/demo/src/run-merchants.ts",
+    "wallets:arkiv": "tsx apps/demo/src/setup/fund-arkiv.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22",
+    "fast-check": "^4.10.2",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9",
+    "vitest": "^4"
+  }
+}
