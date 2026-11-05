@@ -1,16 +1,8 @@
 import { NextResponse } from "next/server";
-import { validName } from "@leash/guard";
+import { originOf, payeesForDomain, validName } from "@leash/guard";
 import { ACCOUNT_ID, knownMerchants, merchantRow, namespaces, reader } from "../../../lib/server";
 
 export const dynamic = "force-dynamic";
-
-const originOf = (s: string) => {
-  try {
-    return new URL(s.includes("://") ? s : `https://${s}`).origin;
-  } catch {
-    return null;
-  }
-};
 
 export async function GET(req: Request) {
   const q = new URL(req.url).searchParams;
@@ -23,6 +15,11 @@ export async function GET(req: Request) {
   if (!key) return json({ ...base, merchants: await known() });
   if (ACCOUNT_ID.test(key) || (validName(key) && key.endsWith(".eth"))) return json({ ...base, merchants: [await merchantRow(key, undefined, r)] });
   const origin = originOf(key);
-  if (origin) return json({ ...base, merchants: (await known()).filter((m) => m.declaration?.domains.includes(origin)) });
+  if (origin) {
+    const listed = (await known()).filter((m) => m.declaration?.domains.includes(origin));
+    if (listed.length) return json({ ...base, merchants: listed });
+    const hits = await payeesForDomain(r.arkiv, r.ens, origin).catch(() => []);
+    return json({ ...base, merchants: await Promise.all(hits.map((h) => merchantRow(h.name ?? h.payTo, h.payTo, r))) });
+  }
   return json({ ...base, error: "Enter an ENS name, a domain or a Hedera account id" }, 400);
 }

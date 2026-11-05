@@ -4,21 +4,21 @@ import { AccountId, Client, PrivateKey, TopicMessageSubmitTransaction, Transacti
 import { createPublicClient, http, verifyMessage, type PublicClient } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
-import { normalize } from "viem/ens";
 import {
   DEFAULT_LIMITS, PROFILES, challengeHash, decide, normalizeUrl, replay,
   type Challenge, type Decision, type Limits, type PolicyParams, type StandingView,
 } from "@leash/core";
-import { Arkiv, type RebuttalRow } from "./arkiv.ts";
+import { Arkiv } from "./arkiv.ts";
 import { deliveryCheck } from "./delivery.ts";
 import { Ens, validName, type DeclarationResult } from "./ens.ts";
-import { PUBLIC_FUNDERS, digest, holdsRebuttalRole, readVerifiedEvidence, reportMessage, verifyRebuttalSignature } from "./evidence.ts";
+import { PUBLIC_FUNDERS, digest, readVerifiedEvidence, reportMessage, verifyRebuttalRow } from "./evidence.ts";
 import { Mirror } from "./mirror.ts";
 import { safeError, Store, type Approval } from "./store.ts";
 
 const nowSec = () => Date.now() / 1000;
-const SAFE_MODE_DEPS = ["ens", "arkiv", "mirror"];
 const MAX_REPORT_ATTEMPTS = 40;
+/** A signed payment may still land for this long after it is sent, so "not on Mirror" means nothing before then. */
+const SETTLEMENT_LANDING_SEC = 180;
 
 export const approvalMessage = (a: { id: string; challengeHash: string; expiresAt: number }) =>
   `leash.approval:v1|${a.id}|${a.challengeHash}|${a.expiresAt}`;
@@ -84,12 +84,16 @@ export function createLeashGuard(cfg: GuardConfig) {
   const publicFunders = new Set([...PUBLIC_FUNDERS, ...(cfg.publicFunders ?? [])]);
   let hcsClient: Client | undefined;
 
-  const safeMode = () => store.healthAll().filter((h) => SAFE_MODE_DEPS.includes(h.dep) && !h.ok).length >= 2;
+  const evidence = (payee: string) => readVerifiedEvidence({
+    arkiv, mirror, ns: cfg.namespace, payee, usdc, publicFunders, proberOwners, badPerPayeeWindowSec: params.badPerPayeeWindowSec,
+    verifyRebuttal: (r) => verifyRebuttalRow(r, cfg.namespace, ens, sepoliaClient),
+  });
 
-  async function verifyRebuttal(r: RebuttalRow): Promise<boolean> {
-    if (!(await verifyRebuttalSignature(cfg.namespace, r))) return false;
-    const resolver = await sepoliaClient.getEnsResolver({ name: normalize(r.ens) });
-    return holdsRebuttalRole(sepoliaClient, resolver, r.signer as `0x${string}`);
+  /** In safe mode caches can hide a recovery, so each decision really probes. Three healthy reads in a row end it. */
+  async function probeDependencies(now: number) {
+    const probe = (dep: string, read: () => Promise<boolean>) =>
+      read().then((ok) => store.setHealth(dep, ok, now)).catch((e) => store.setHealth(dep, false, now, safeError(e)));
+    await Promise.all([probe("ens", () => ens.health()), probe("arkiv", () => arkiv.health()), probe("mirror", () => mirror.health())]);
   }
 
   /** Fresh read, else the staleness rules in core decide what the cached view is worth. */
@@ -101,9 +105,10 @@ export function createLeashGuard(cfg: GuardConfig) {
       return { status: "fresh", view: cached, unverified: 0 };
     }
     try {
-      const v = await readVerifiedEvidence({ arkiv, mirror, ns: cfg.namespace, payee, usdc, publicFunders, proberOwners, verifyRebuttal });
+      const v = await evidence(payee);
       const view = replay(v.evidence, now, params);
-      store.standingPut(payee, view);
+      // With Mirror down the view is missing evidence, so caching it would turn the next call into a false ALLOW.
+      if (!v.incomplete) store.standingPut(payee, view);
       store.setHealth("arkiv", true, now);
       return { status: "fresh", view, unverified: v.unverifiedBadClusters };
     } catch (e) {
@@ -118,10 +123,26 @@ export function createLeashGuard(cfg: GuardConfig) {
     };
   }
 
+  /** After a failed settle, Mirror Node decides whether another attempt could double-pay. */
+  async function settlementUnknown(hash: string, now: number): Promise<boolean> {
+    const open = store.settlementGet(cfg.agent, hash);
+    if (!open) return false;
+    try {
+      const facts = await mirror.tx(open.txId);
+      if (!facts.found && now - open.at < SETTLEMENT_LANDING_SEC) return true;
+      store.settlementClose(cfg.agent, hash);
+      return false;
+    } catch {
+      return true;
+    }
+  }
+
   async function evaluate(req: any, ctx: RequestCtx | undefined): Promise<{ decision: Decision; declaration: DeclarationResult }> {
     const now = nowSec();
     store.expireApprovals(now);
+    if (store.safeMode()) await probeDependencies(now);
     const challenge = toChallenge(req, ctx?.url ?? `unknown://${req.payTo}`);
+    const hash = challengeHash(challenge);
     const claim = validName(req.extra?.leashEns) ? (req.extra.leashEns as string) : null;
     const [declaration, reg] = await Promise.all([ens.resolve(claim, now), standing(req.payTo, now)]);
     const merchant = claim && declaration.value ? claim : req.payTo;
@@ -130,17 +151,19 @@ export function createLeashGuard(cfg: GuardConfig) {
       realOrigin: ctx?.origin ?? null,
       registry: { status: reg.status, view: reg.view },
       ledger: store.ledger(cfg.agent, session, merchant, normalizeUrl(challenge.resourceUrl), now),
-      challengeState: { receivedAt: ctx?.receivedAt ?? now, paidAt: store.paidAt(cfg.agent, challengeHash(challenge)) },
+      challengeState: { receivedAt: ctx?.receivedAt ?? now, paidAt: store.paidAt(cfg.agent, hash) },
       idempotent: ctx?.idempotent,
-      escalationsLastHour: store.countNewEscalations(cfg.agent, now),
+      escalationsLastHour: store.countNewEscalations(cfg.agent, now, hash),
       unverifiedBadClusters: reg.unverified,
-      safeMode: safeMode(),
+      safeMode: store.safeMode(),
+      settlementUnknown: await settlementUnknown(hash, now),
+      locallyBlocked: store.isLocallyBlocked(req.payTo),
       limits, params,
     });
     return { decision, declaration };
   }
 
-  function pendingApproval(d: Decision, req: any): string {
+  function pendingApproval(d: Decision, req: any, declaration: DeclarationResult): string {
     const open = store.listApprovals("pending", 200).find((a) => a.agent === cfg.agent && a.challengeHash === d.challengeHash);
     if (open) return open.id;
     const id = randomUUID();
@@ -151,8 +174,10 @@ export function createLeashGuard(cfg: GuardConfig) {
       card: {
         merchant: d.merchantKey, payTo: String(req.payTo), standing: d.standing, amountUsd: d.amountUsd,
         score: Math.round(d.score * 10) / 10, reasons: d.reasons.slice(0, 3), remainingCap24h: remaining,
+        declaredMaxUsd: declaration.value?.maxPriceUsd ?? null,
       },
     });
+    audit("approval", id, { id, state: "requested", agent: cfg.agent, merchant: d.merchantKey, amountUsd: d.amountUsd, challengeHash: d.challengeHash, at: d.at });
     return id;
   }
 
@@ -161,7 +186,9 @@ export function createLeashGuard(cfg: GuardConfig) {
     const candidate = store.listApprovals("approved", 200).find((a) => a.agent === cfg.agent && a.challengeHash === hash && a.expiresAt >= now);
     if (!candidate?.signature) return undefined;
     const ok = await verifyMessage({ address: cfg.ownerAddress, message: approvalMessage(candidate), signature: candidate.signature as `0x${string}` }).catch(() => false);
-    return ok ? store.consumeApproval(cfg.agent, hash, now) : undefined;
+    const used = ok ? store.consumeApproval(cfg.agent, hash, now) : undefined;
+    if (used) audit("approval", `${used.id}:used`, { id: used.id, state: "used", agent: cfg.agent, challengeHash: hash, at: now, signature: used.signature });
+    return used;
   }
 
   const audit = (type: string, dedupe: string, body: Record<string, unknown>) => {
@@ -185,7 +212,9 @@ export function createLeashGuard(cfg: GuardConfig) {
       const reason = `leash:${decision.verdict}:${decision.reasons.join(",")}`;
       if (decision.verdict === "DENY") return { abort: true, reason };
       if (await useApproval(decision.challengeHash, decision.at)) return;
-      const approvalId = pendingApproval(decision, req);
+      const approvalId = pendingApproval(decision, req, declaration);
+      decision.approvalId = approvalId;
+      store.saveDecision(cfg.agent, decision);
       if (ctx) ctx.approvalId = approvalId;
       return { abort: true, reason };
     });
@@ -215,11 +244,18 @@ export function createLeashGuard(cfg: GuardConfig) {
     } catch (e) {
       const d = ctx.decision;
       if (d?.verdict === "DENY") throw new LeashDenied(d);
-      if (d?.verdict === "ESCALATE" && ctx.approvalId) throw new LeashEscalated(d, ctx.approvalId);
-      if (ctx.paid) queueReport(ctx, "bad", "transport-failure");
+      if (d?.verdict === "ESCALATE" && ctx.approvalId) {
+        if (cfg.awaitApprovalMs && (await waitForApproval(ctx.approvalId, cfg.awaitApprovalMs)) === "approved") return guardedFetchImpl(inner, input, init);
+        throw new LeashEscalated(d, ctx.approvalId);
+      }
+      if (ctx.paid) {
+        store.settlementOpen(cfg.agent, ctx.paid.hash, ctx.paid.txId, nowSec());
+        queueReport(ctx, "bad", "transport-failure");
+      }
       throw e;
     }
     if (ctx.paid) {
+      if (!res.ok) store.settlementOpen(cfg.agent, ctx.paid.hash, ctx.paid.txId, nowSec());
       const body = await res.clone().text();
       const check = deliveryCheck({ status: res.status, contentType: res.headers.get("content-type"), body, schema: ctx.paid.schema });
       queueReport(ctx, check.ok ? "good" : "bad", check.ok ? "delivered" : check.reason);
@@ -247,7 +283,12 @@ export function createLeashGuard(cfg: GuardConfig) {
       return "done";
     }
     if (item.kind === "report") {
-      const facts = await mirror.tx(p.txId);
+      let facts;
+      try {
+        facts = await mirror.tx(p.txId);
+      } catch {
+        return "retry"; // held until Mirror can confirm settlement; Mirror reports its own health
+      }
       if (!facts.found) return item.attempts >= MAX_REPORT_ATTEMPTS ? "done" : "retry"; // settlement never landed
       if (!facts.success) return "done";
       const message = reportMessage({ ns: cfg.namespace, txId: p.txId, payee: p.payee, outcome: p.outcome, amountMicroUsd: p.amountMicroUsd, owner: arkivOwner });
@@ -300,6 +341,9 @@ export function createLeashGuard(cfg: GuardConfig) {
   return {
     config: cfg,
     params,
+    limits,
+    session,
+    evidence,
     store,
     mirror,
     ens,

@@ -42,6 +42,11 @@ export class Ens {
     return parseDeclaration(Object.fromEntries(LEASH_KEYS.map((k, i) => [k, vals[i] ?? null])));
   }
 
+  async health(): Promise<boolean> {
+    await this.client.getBlockNumber();
+    return true;
+  }
+
   /** Follows the staleness table in PRD section 12. */
   async resolve(name: string | null, now: number): Promise<DeclarationResult> {
     if (!name) return { status: "none" };

@@ -4,6 +4,8 @@ const DAY = 24 * HOUR;
 /** Durations are seconds. Only the ones the PRD lists differ between profiles. */
 export interface PolicyParams {
   name: "production" | "live";
+  /** One policy day: how often the prober retests a merchant in probation. */
+  policyDaySec: number;
   blockBaseSec: number;
   blockMaxSec: number;
   holdSec: number;
@@ -27,6 +29,7 @@ export interface PolicyParams {
 
 const production: PolicyParams = {
   name: "production",
+  policyDaySec: DAY,
   blockBaseSec: 5 * DAY,
   blockMaxSec: 20 * DAY,
   holdSec: 72 * HOUR,
@@ -53,6 +56,7 @@ const LIVE_DAY = 18; // 1 policy day = 18 real seconds, disclosed on screen
 const live: PolicyParams = {
   ...production,
   name: "live",
+  policyDaySec: LIVE_DAY,
   blockBaseSec: 5 * LIVE_DAY,
   blockMaxSec: 20 * LIVE_DAY,
   holdSec: 3 * LIVE_DAY,
@@ -79,3 +83,7 @@ export const DEFAULT_LIMITS = {
 
 export const SOFT_CAPS = { NEW: 0.05, ESTABLISHED: 1.0, PROBATION: 0.1 } as const;
 export const HARD_CAP_MULTIPLE = 5;
+
+/** G5: bad reports one reporter may file in a rolling real day, across all payees. Not shortened by the live profile. */
+export const REPORTER_BAD_PER_DAY = 5;
+export const REPORTER_DAY_SEC = DAY;

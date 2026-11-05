@@ -16,7 +16,7 @@ const sign = (message: string, address: string): Promise<`0x${string}`> =>
 function ApprovalCard({ a, now, owner, onDone }: { a: any; now: number; owner: string | null; onDone: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const act = async (action: "approve" | "reject") => {
+  const act = async (action: "approve" | "reject" | "reject-block") => {
     setBusy(true);
     setError("");
     try {
@@ -47,12 +47,14 @@ function ApprovalCard({ a, now, owner, onDone }: { a: any; now: number; owner: s
         <dt>Agent</dt><dd>{a.agent}</dd>
         <dt>Score</dt><dd>{c.score}</dd>
         <dt>Reasons</dt><dd>{(c.reasons as string[]).join(", ")}</dd>
-        <dt>24h cap left</dt><dd>{usd(c.remainingCap24h)}</dd>
+        <dt>Declared max</dt><dd>{c.declaredMaxUsd === null ? "No declaration" : `${usd(c.declaredMaxUsd)} (asks ${usd(c.amountUsd)})`}</dd>
+        <dt>24h cap left</dt><dd>{c.standing === "UNKNOWN" ? "No cap: always asks you" : usd(c.remainingCap24h)}</dd>
         <dt>Expires in</dt><dd><strong>{secondsLeft(a.expiresAt, now)}</strong></dd>
       </dl>
       <div className="row" style={{ justifyContent: "flex-start" }}>
         <button className="primary" disabled={busy} onClick={() => act("approve")}>Approve once</button>
         <button disabled={busy} onClick={() => act("reject")}>Reject</button>
+        <button disabled={busy} onClick={() => act("reject-block")}>Reject and block locally</button>
       </div>
       {error && <p className="err" role="alert">{error}</p>}
     </div>
@@ -65,6 +67,7 @@ function RebuttalDesk({ merchants, onDone }: { merchants: any[]; onDone: () => v
   const [reason, setReason] = useState(REASONS[1]!);
   const [msg, setMsg] = useState("");
   const name = ens || named[0]?.name || "";
+  const m = named.find((x) => x.name === name);
   const file = async () => {
     setMsg("");
     try {
@@ -93,6 +96,13 @@ function RebuttalDesk({ merchants, onDone }: { merchants: any[]; onDone: () => v
         <button onClick={file} disabled={!name}>Sign and file</button>
       </div>
       {msg && <p role="status">{msg}</p>}
+      {m && (
+        <p className="muted" style={{ marginBottom: 0 }}>
+          <Badge v={m.standing} /> {m.view?.rebuttalUsed ? "Rebuttal used this episode" : "Rebuttal available"}
+          {" · "}Last probe: {m.probes[0] ? <Badge v={m.probes[0].result} /> : "none"}
+          {m.view?.standing === "PROBATION" && <> · Recovery: {m.view.goodClusters} of 3 good clusters, {usd(m.view.D)} of $0.15 delivered</>}
+        </p>
+      )}
     </section>
   );
 }
@@ -121,7 +131,7 @@ export default function Console() {
 
   if (!s) return <main>{error ? <p className="err">{error}</p> : <p className="muted">Loading live state…</p>}</main>;
   const pending = s.approvals.filter((a: any) => a.status === "pending");
-  const deps = ["ens", "arkiv", "mirror", "hcs"];
+  const deps = ["ens", "arkiv", "mirror", "facilitator", "hcs"];
 
   return (
     <main>
@@ -141,6 +151,11 @@ export default function Console() {
           {s.approvals.filter((a: any) => a.status !== "pending").slice(0, 4).map((a: any) => (
             <p key={a.id} className="muted" style={{ margin: "4px 0" }}><Badge v={a.status} /> {a.card.merchant} {usd(a.card.amountUsd)}</p>
           ))}
+          {s.escalations.length > 0 && (
+            <p className="muted" style={{ marginBottom: 0 }}>
+              New escalations this hour: {s.escalations.map((e: any) => `${e.agent} ${e.count} of ${s.escalationLimit}`).join(" · ")}
+            </p>
+          )}
         </section>
 
         <section className="panel">
@@ -148,7 +163,7 @@ export default function Console() {
           <div className="health">
             {deps.map((d) => {
               const h = s.health.find((x: any) => x.dep === d);
-              return <span key={d} title={h?.detail || ""}><span className={`dot ${h && !h.ok ? "down" : ""}`} />{d}{!h && <span className="muted"> (unused)</span>}{h && !h.ok && <strong className="err"> down</strong>}</span>;
+              return <span key={d} title={h?.detail || ""}><span className={`dot ${h && !h.ok ? "down" : ""}`} />{d}{!h && <span className="muted"> (unused)</span>}{h && !h.ok && <strong className="err"> down</strong>}{h?.recovering && <span className="muted"> recovering</span>}</span>;
             })}
           </div>
           <p className="muted" style={{ marginBottom: 0 }}>
@@ -166,6 +181,7 @@ export default function Console() {
 
         <section className="panel full">
           <h2>Decision log</h2>
+          {s.topic && <p className="muted" style={{ marginTop: 0 }}>Each decision is also published to <a href={`https://hashscan.io/testnet/topic/${s.topic}`}>HCS audit topic {s.topic}</a>.</p>}
           {s.decisions.length === 0 && <p className="muted">No decisions yet.</p>}
           {s.decisions.length > 0 && (
             <div className="scroll">
@@ -181,7 +197,14 @@ export default function Console() {
                       <td>{d.standing}</td>
                       <td>{usd(d.amountUsd)}</td>
                       <td>{d.score.toFixed(1)}</td>
-                      <td className="muted">{d.reasons.join(", ") || "none"}</td>
+                      <td className="muted">
+                        <details>
+                          <summary>{d.reasons.join(", ") || "none"}</summary>
+                          bad {d.factors.bad.toFixed(2)} · loss {d.factors.loss.toFixed(2)} · trust {d.factors.trust.toFixed(2)} · exposure {d.factors.exposure.toFixed(2)} · identity {d.factors.identity.toFixed(2)}
+                          <br />auto limit {usd(d.limits.autoApprove)} · cap {usd(d.limits.cap24h)} · used {usd(d.limits.capUsed24h)}
+                          {d.degraded && <><br />degraded: {d.degraded.dependency}, {Math.round(d.degraded.staleSec)} s stale</>}
+                        </details>
+                      </td>
                     </tr>
                   ))}
                 </tbody>

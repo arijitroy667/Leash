@@ -23,7 +23,7 @@ export async function probeOnce(reader: ReturnType<typeof buildReader>, ens: str
   if (!decl?.probeUrl) return { skipped: "no-probe-url" as const };
 
   // The prober pays directly: the guard would rightly refuse a blocked merchant.
-  const client = rawClient(account, key);
+  const client = rawClient(account, key, reader.usdc);
   let txId = "";
   let amount = 0;
   client.onAfterPaymentCreation(async (ctx: any) => {
@@ -33,6 +33,7 @@ export async function probeOnce(reader: ReturnType<typeof buildReader>, ens: str
   client.onBeforePaymentCreation(async (ctx: any) => {
     if (Number(ctx.selectedRequirements.amount) / 1e6 > PROBE_USD) return { abort: true, reason: "probe-too-expensive" };
     if (ctx.selectedRequirements.payTo !== decl.payTo) return { abort: true, reason: "probe-payto-mismatch" };
+    if (ctx.selectedRequirements.asset !== reader.usdc) return { abort: true, reason: "probe-asset-mismatch" };
     return undefined;
   });
   const res = await wrapFetchWithPayment(fetch, client)(decl.probeUrl);
@@ -51,10 +52,12 @@ export async function probeOnce(reader: ReturnType<typeof buildReader>, ens: str
   const { entityKey } = await reader.arkiv.writeProbe(hex(key), {
     payee: decl.payTo, result, txId, consensusTs: facts.consensusTs!, amountMicroUsd: amount, deliveryDigest: digest(body),
   }, reader.params.reportTtlSec);
+  reader.audit("probe", txId, { payee: decl.payTo, result, txId, entityKey, at: facts.consensusTs });
+  await reader.flushAudit();
   return { result, txId, entityKey };
 }
 
-/** Probes after each unconsumed rebuttal, and once per probation entry. */
+/** Probes after each unconsumed rebuttal, and once a policy day during probation. */
 export async function watch(names: string[], intervalMs = 5000) {
   const reader = buildReader();
   const done = new Set<string>();
@@ -66,10 +69,11 @@ export async function watch(names: string[], intervalMs = 5000) {
         const { view, rows } = await reader.read(decl.payTo, Date.now() / 1000);
         const latest = rows.rebuttals[0];
         const blockedRebuttal = view.standing === "BLOCKED" && latest && !done.has(`r:${latest.filedAt}`);
-        const probationEntry = view.standing === "PROBATION" && view.probationStart !== null && !done.has(`p:${view.probationStart}`);
+        const day = `p:${view.probationStart}:${Math.floor((Date.now() / 1000 - (view.probationStart ?? 0)) / reader.params.policyDaySec)}`;
+        const probationDue = view.standing === "PROBATION" && view.probationStart !== null && !done.has(day);
         if (blockedRebuttal) done.add(`r:${latest!.filedAt}`);
-        if (probationEntry) done.add(`p:${view.probationStart}`);
-        if (blockedRebuttal || probationEntry) console.log(name, view.standing, JSON.stringify(await probeOnce(reader, name)));
+        if (probationDue) done.add(day);
+        if (blockedRebuttal || probationDue) console.log(name, view.standing, JSON.stringify(await probeOnce(reader, name)));
       } catch (e) {
         console.error(name, "probe error", safeError(e));
       }

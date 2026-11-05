@@ -30,10 +30,10 @@ Every link is a real testnet event. The lemon and probe payments come from a reh
 
 | Event | Link |
 | --- | --- |
-| Good payment, with no human (production profile) | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793894734-804893074) |
-| Payment to lemon, which then delivered junk | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793894765-596685111) |
-| Probe payment after a rebuttal | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793894817-695843570) |
-| HCS audit topic, with decision and denial messages (`0.0.11323820`, messages 1 and 4) | [HashScan](https://hashscan.io/testnet/topic/0.0.11323820) |
+| Good payment, with no human (production profile) | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793896157-209108345) |
+| Payment to lemon, which then delivered junk | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793896231-823642241) |
+| Probe payment after a rebuttal | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793896292-479701920) |
+| HCS audit topic, with decision and denial messages (`0.0.11326849`, messages 1 and 14) | [HashScan](https://hashscan.io/testnet/topic/0.0.11326849) |
 
 **Hedera x402.** We use the Blocky402 facilitator. Its `GET /supported` returns `{"scheme":"exact","network":"hedera:testnet","extra":{"feePayer":"0.0.7162784"}}`. That output does not list assets: we pin USDC `0.0.429274` in the guard, and DENY anything else as `unsupported-asset`. No report counts until Mirror Node confirms the payment succeeded, in that token, with that payer, payee and amount, and the payer's key has signed it.
 
@@ -246,6 +246,8 @@ const paidFetch = guard.guardedFetch(wrapFetchWithPayment(fetch, client));
 
 A developer can still call the raw client, so the SDK does not prevent bypass. The MCP server does.
 
+A default `x402Client` has its own spend controls, which reject some challenges before the guard sees them. No payment is made, but that challenge gets no decision or audit message. `rawClient` from `@leash/guard` turns them off so the guard decides everything.
+
 **MCP**, where the server holds the signer and there is no approve tool:
 
 ```json
@@ -282,9 +284,17 @@ The PRD asks for any rule it does not contain to be recorded here, with a reason
 | The G5 per-payee window is a live-profile duration (18 s) | Otherwise agent A's second bad report in scene 6 would be ignored |
 | Evidence scope stays at probation entry after probation ends | In the live profile, decay is not shortened, so evidence from before a block could trigger another |
 | `stale-challenge` uses the time this request received its 402 | A fresh 402 for the same price has the same hash, so a first-seen time could never clear |
-| The explorer's domain search matches only the merchants this deployment lists | Arkiv has no index of domains, and ENS has no reverse lookup from a domain |
-| "Reject and block locally" is not built | Reject is enough for the demo; add a local deny list if it is needed |
-| Safe mode ends on the next healthy read, not after three | Simpler; the upgrade is a counter on the health table |
+| New ESCALATE reason `settlement-unknown` | Section 12 says an unknown settlement outcome escalates, but names no code |
+| New DENY reason `locally-blocked` | "Reject and block locally" needs a reason, and the PRD gives none |
+| An amount above `leash.maxPrice` on a stale declaration escalates, as `declared-stale-mismatch` | A stale record may be out of date, and section 12 says a stale declaration never denies |
+| A rebuttal must come from a name whose ENS declaration lists that payee | Without this, anyone could use their own name to burn another merchant's one rebuttal |
+| The report column `domain` is indexed, and ENS decides which rows to believe | Needed to search by domain. The report signature does not cover the domain, so a row alone proves nothing |
+| A block compares b after G4 halving | G4 says a contested merchant takes half weight, so three dust reports should not block it |
+| Promotion to ESTABLISHED is also judged at the moment its waiting period ends | Evidence decays, so otherwise a merchant that earned its standing would lose it just by being read late |
+| A `leash.policyVersion` bump takes effect at the next 60-second refresh | Reading the version on every decision would add a network call to each payment |
+| `leash_report_outcome` has no `note` field | Free text from an LLM or merchant has no place in a shared registry |
+| The agents' x402 client has its own spend controls off | They reject a challenge before any hook runs, which would leave it with no decision, reason or audit. The guard applies the same rules |
+| Signed receipts, family taint and the Swarm bonus are not built | FR-23 is "could", and the PRD says the simulation showed taint changed nothing |
 | Merchant facilitator failover is a redeploy, not automatic | Two facilitators made the advertised `feePayer` vary by deployment, which is part of the signed payment |
 | Rebuttals expire with reports (60 days), not at 30 days | A rebuttal only matters while the block it refers to is in evidence |
 

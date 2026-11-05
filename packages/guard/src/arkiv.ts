@@ -8,7 +8,7 @@ import { privateKeyToAccount } from "viem/accounts";
 export const ReportSchema = defineSchema("leash.report", {
   ns: str().indexed(),
   payee: str().indexed(),
-  domain: str(),
+  domain: str().indexed(),
   ens: str().indexed(),
   outcome: str().indexed(),
   txId: str().indexed(),
@@ -84,6 +84,11 @@ export interface RebuttalRow {
 
 const num = (x: { value: bigint | number | string }) => Number(x.value);
 const txt = (x: { value: unknown }) => String(x.value);
+const toReport = (r: any): ReportRow => ({
+  owner: r.$owner, payee: txt(r.payee), ens: txt(r.ens), domain: txt(r.domain), outcome: txt(r.outcome) as "good" | "bad",
+  txId: txt(r.txId), payer: txt(r.payer), payerSig: txt(r.payerSig), consensusTs: num(r.consensusTs),
+  amountMicroUsd: num(r.amountMicroUsd), reason: txt(r.reason), v: num(r.v),
+});
 
 export class Arkiv {
   private pub;
@@ -106,12 +111,23 @@ export class Arkiv {
       entities.push(...page.entities);
       if (page.entities.length < PAGE) break;
     }
-    const res = { entities };
-    return res.entities.map((r: any) => ({
-      owner: r.$owner, payee: txt(r.payee), ens: txt(r.ens), domain: txt(r.domain), outcome: txt(r.outcome) as "good" | "bad",
-      txId: txt(r.txId), payer: txt(r.payer), payerSig: txt(r.payerSig), consensusTs: num(r.consensusTs),
-      amountMicroUsd: num(r.amountMicroUsd), reason: txt(r.reason), v: num(r.v),
-    }));
+    return entities.map(toReport);
+  }
+
+  /** One reporter's latest bad reports across all payees, for the G5 daily limit. */
+  async badReportsByPayer(payer: string): Promise<ReportRow[]> {
+    const res = await this.pub.select().from(ReportSchema)
+      .where(and(eq("ns", this.ns), eq("payer", payer), eq("outcome", "bad")))
+      .orderBy(desc("consensusTs")).limit(PAGE).fetch();
+    return res.entities.map(toReport);
+  }
+
+  /** Reports naming an origin. Its signature does not cover the domain, so ENS has the last word: payeesForDomain. */
+  async reportsByDomain(origin: string): Promise<ReportRow[]> {
+    const res = await this.pub.select().from(ReportSchema)
+      .where(and(eq("ns", this.ns), eq("domain", origin)))
+      .orderBy(desc("consensusTs")).limit(PAGE).fetch();
+    return res.entities.map(toReport);
   }
 
   async probes(payee: string): Promise<ProbeRow[]> {

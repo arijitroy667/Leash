@@ -11,7 +11,7 @@ Filed automatically by the paying guard after its delivery check.
 | `ns` | str | yes | Registry namespace, separates runs |
 | `payee` | str | yes | Hedera account paid |
 | `ens` | str | yes | ENS name claimed by the merchant, or empty |
-| `domain` | str | no | Origin of the real request |
+| `domain` | str | yes | Origin of the real request. Not covered by the signature, so readers check it against ENS |
 | `outcome` | str | yes | `good` or `bad` |
 | `txId` | str | yes | Hedera transaction proving payment |
 | `payer` | str | yes | Account debited, which is not the account in the transaction id |
@@ -25,7 +25,7 @@ The signed message is `leash.report:v1|ns|txId|payee|outcome|amountMicroUsd|arki
 
 ## `leash.rebuttal`
 
-Signed by the wallet holding `ROLE_SET_TEXT` on the merchant resolver's `leash.rebuttal` key. It queues a probe and never unblocks alone. Columns: `ns`, `payee`, `ens`, `reason` (enum), `evidenceHash`, `episodeStart`, `filedAt`, `signer`, `signature` (bytes), `v`. Free text is never stored.
+Signed by the wallet holding `ROLE_SET_TEXT` on the merchant resolver's `leash.rebuttal` key. The name must also declare that payee in ENS, so nobody can burn another merchant's rebuttal. It queues a probe and never unblocks alone. Columns: `ns`, `payee`, `ens`, `reason` (enum), `evidenceHash`, `episodeStart`, `filedAt`, `signer`, `signature` (bytes), `v`. Free text is never stored.
 
 ## `leash.probe`
 

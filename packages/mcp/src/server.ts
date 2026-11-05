@@ -6,8 +6,7 @@ import { fileURLToPath } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { DEFAULT_LIMITS } from "@leash/core";
-import { buildAgent, LeashDenied, LeashEscalated, validName, type Approval } from "@leash/guard";
+import { buildAgent, LeashDenied, LeashEscalated, REBUTTAL_REASONS, originOf, payeesForDomain, validName, type Approval } from "@leash/guard";
 
 export const BODY_CAP = 4000;
 
@@ -24,10 +23,11 @@ export const safeCard = (a: Approval) => ({
   score: a.card.score,
   reasons: a.card.reasons,
   remainingCap24h: a.card.remainingCap24h,
+  declaredMaxUsd: typeof a.card.declaredMaxUsd === "number" ? a.card.declaredMaxUsd : null,
 });
 
-export function buildServer(letter: string) {
-  const { guard, paidFetch } = buildAgent(letter);
+export function buildServer(letter: string, agent: ReturnType<typeof buildAgent> = buildAgent(letter)) {
+  const { guard, paidFetch } = agent;
   const server = new McpServer({ name: "leash", version: "0.1.0" });
 
   server.registerTool("leash_pay_request", {
@@ -56,25 +56,34 @@ export function buildServer(letter: string) {
   });
 
   server.registerTool("leash_check_merchant", {
-    description: "Read a merchant's standing by payTo account or ENS name. Read-only.",
+    description: "Read a merchant's standing by payTo account, ENS name or domain. Read-only.",
     inputSchema: { key: z.string().max(255) },
   }, async ({ key }) => {
     const now = Date.now() / 1000;
     let payTo = key;
     let declared = false;
-    if (validName(key)) {
+    if (validName(key) && key.endsWith(".eth")) {
       const d = await guard.ens.resolve(key, now);
       if (!d.value) return json({ key, standing: "UNKNOWN", declared: false });
       payTo = d.value.payTo;
       declared = true;
-    } else if (!/^0\.0\.\d+$/.test(key)) return json({ error: "key must be an ENS name or a Hedera account id" });
+    } else if (!/^0\.0\.\d+$/.test(key)) {
+      const origin = originOf(key);
+      if (!origin) return json({ error: "key must be an ENS name, a domain or a Hedera account id" });
+      const [hit] = await payeesForDomain(guard.arkiv, guard.ens, origin).catch(() => []);
+      if (!hit) return json({ key, standing: "UNKNOWN", declared: false });
+      payTo = hit.payTo;
+      declared = hit.name !== null;
+    }
     const r = await guard.merchant(payTo);
     const v = r.view;
+    const filed = await guard.evidence(payTo).then((e) => e.rows.rebuttals[0]?.reason).catch(() => undefined);
     return json({
       key, payTo, declared, source: r.status,
       standing: !v ? "UNKNOWN" : v.standing === "BLOCKED" || declared ? v.standing : "UNKNOWN",
       factors: v && { b: v.bScore, L: v.L, D: v.D, g: v.g }, strikes: v?.strikes ?? 0, blockEnd: v?.blockEnd ?? null,
       holdUntil: v?.holdUntil ?? null, rebuttalUsed: v?.rebuttalUsed ?? false,
+      rebuttal: REBUTTAL_REASONS.includes(filed as never) ? filed : null,
     });
   });
 
@@ -90,7 +99,7 @@ export function buildServer(letter: string) {
     description: "Report the outcome of a payment this server made. Reports are normally filed automatically, and only the first report for a payment counts.",
     inputSchema: { txId: z.string().max(64), outcome: z.enum(["good", "bad"]) },
   }, async ({ txId, outcome }) => {
-    const row = guard.store.db.prepare("SELECT done, payload FROM outbox WHERE kind='report' AND dedupe=?").get(`agent-${letter.toLowerCase()}:${txId}`) as { done: number; payload: string } | undefined;
+    const row = guard.store.db.prepare("SELECT done, payload FROM outbox WHERE kind='report' AND dedupe=?").get(`${guard.config.agent}:${txId}`) as { done: number; payload: string } | undefined;
     if (!row) return json({ status: "refused", reason: "not-a-payment-by-this-server" });
     const filed = JSON.parse(row.payload).outcome;
     return json({ status: row.done ? "already-filed" : "queued", outcome: filed, requested: outcome });
@@ -101,7 +110,7 @@ export function buildServer(letter: string) {
     inputSchema: {},
   }, async () => {
     guard.store.expireApprovals(Date.now() / 1000);
-    return json({ pending: guard.store.listApprovals("pending").filter((a) => a.agent === `agent-${letter.toLowerCase()}`).map(safeCard) });
+    return json({ pending: guard.store.listApprovals("pending").filter((a) => a.agent === guard.config.agent).map(safeCard) });
   });
 
   server.registerTool("leash_await_approval", {
@@ -113,12 +122,13 @@ export function buildServer(letter: string) {
     description: "Remaining session and daily budget, and per-merchant spend in the last 24 hours. Read-only.",
     inputSchema: {},
   }, async () => {
-    const agent = `agent-${letter.toLowerCase()}`;
-    const since = Date.now() / 1000 - 86400;
-    const perMerchant = guard.store.db.prepare("SELECT merchant, SUM(amount) spent FROM spend_ledger WHERE agent=? AND at>? GROUP BY merchant").all(agent, since);
-    const daily = (perMerchant as { spent: number }[]).reduce((s, r) => s + r.spent, 0);
-    const budget = DEFAULT_LIMITS.dailyBudget;
-    return json({ dailyBudget: budget, dailyRemaining: Math.max(0, budget - daily), perMerchant });
+    const b = guard.store.budget(guard.config.agent, guard.session, Date.now() / 1000);
+    const { sessionBudget, dailyBudget } = guard.limits;
+    return json({
+      session: { budget: sessionBudget, spent: b.sessionSpent, remaining: Math.max(0, sessionBudget - b.sessionSpent) },
+      daily: { budget: dailyBudget, spent: b.dailySpent, remaining: Math.max(0, dailyBudget - b.dailySpent) },
+      perMerchant: b.perMerchant,
+    });
   });
 
   return server;

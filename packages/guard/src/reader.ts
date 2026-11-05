@@ -1,13 +1,13 @@
+import { AccountId, Client, PrivateKey, TopicMessageSubmitTransaction } from "@hiero-ledger/sdk";
 import { createPublicClient, http, type PublicClient } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
-import { normalize } from "viem/ens";
 import { PROFILES, replay } from "@leash/core";
 import { Arkiv } from "./arkiv.ts";
 import { Ens } from "./ens.ts";
-import { PUBLIC_FUNDERS, holdsRebuttalRole, readVerifiedEvidence, verifyRebuttalSignature } from "./evidence.ts";
+import { PUBLIC_FUNDERS, readVerifiedEvidence, verifyRebuttalRow } from "./evidence.ts";
 import { Mirror } from "./mirror.ts";
-import { Store } from "./store.ts";
+import { safeError, Store } from "./store.ts";
 
 const hex = (k: string) => (k.startsWith("0x") ? k : `0x${k}`) as `0x${string}`;
 
@@ -27,13 +27,33 @@ export function buildReader(env: NodeJS.ProcessEnv = process.env) {
   const read = async (payee: string, now: number) => {
     const v = await readVerifiedEvidence({
       arkiv, mirror, ns, payee, usdc, publicFunders: new Set(PUBLIC_FUNDERS), proberOwners,
-      verifyRebuttal: async (r) => {
-        if (!(await verifyRebuttalSignature(ns, r))) return false;
-        return holdsRebuttalRole(client, await client.getEnsResolver({ name: normalize(r.ens) }), r.signer as `0x${string}`);
-      },
+      badPerPayeeWindowSec: params.badPerPayeeWindowSec,
+      verifyRebuttal: (r) => verifyRebuttalRow(r, ns, ens, client),
     });
     return { ...v, view: replay(v.evidence, now, params) };
   };
-  return { params, usdc, ns, store, mirror, arkiv, ens, client, read };
+
+  /** Rebuttals and probes go to the audit topic too. The outbox keeps them if HCS is down. */
+  const audit = (type: "rebuttal" | "probe", dedupe: string, body: Record<string, unknown>) => {
+    if (env.HCS_TOPIC_ID) store.enqueue("hcs", `hcs:${type}:${dedupe}`, { type, ...body });
+  };
+  let hcs: Client | undefined;
+  async function flushAudit() {
+    if (!env.HCS_TOPIC_ID || !env.PROBER_ACCOUNT || !env.PROBER_KEY) return;
+    const now = Date.now() / 1000;
+    for (const item of store.dueOutbox(now, 25)) {
+      if (item.kind !== "hcs" || !store.claimOutbox(item.id, now)) continue;
+      try {
+        hcs ??= Client.forTestnet().setOperator(AccountId.fromString(env.PROBER_ACCOUNT), PrivateKey.fromStringECDSA(env.PROBER_KEY));
+        await new TopicMessageSubmitTransaction().setTopicId(env.HCS_TOPIC_ID).setMessage(JSON.stringify(item.payload)).execute(hcs);
+        store.setHealth("hcs", true, now);
+        store.outboxDone(item.id);
+      } catch (e) {
+        store.setHealth("hcs", false, now, safeError(e));
+        store.outboxRetry(item.id, item.attempts, now);
+      }
+    }
+  }
+  return { params, usdc, ns, store, mirror, arkiv, ens, client, read, audit, flushAudit };
 }
 

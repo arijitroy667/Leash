@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import fc from "fast-check";
 import fixtures from "./fixtures.json" with { type: "json" };
 import {
-  DEFAULT_LIMITS, PROFILES, autoLimit, challengeHash, decide, replay, riskScore,
+  DEFAULT_LIMITS, PROFILES, autoLimit, challengeHash, decide, replay, reporterExcess, riskScore,
   type Challenge, type Declaration, type DecideInput, type Evidence, type Report, type Standing, type StandingView,
 } from "../src/index.ts";
 
@@ -25,7 +25,7 @@ const challenge = (A: number, over: Partial<Challenge> = {}): Challenge => ({
   resourceUrl: "https://m.example/data", maxTimeoutSeconds: 60, ...over,
 });
 const viewOf = (v: Partial<StandingView>): StandingView => ({
-  standing: "NEW", strikes: 0, blockEnd: null, probationStart: null, holdUntil: null, rebuttalUsed: false, computedAt: 0,
+  standing: "NEW", strikes: 0, blockStart: null, blockEnd: null, probationStart: null, holdUntil: null, rebuttalUsed: false, computedAt: 0,
   b: 0, bScore: 0, L: 0, D: 0, g: 0, badClusters: 0, goodClusters: 0, ...v,
 });
 const input = (over: Partial<DecideInput> = {}): DecideInput => ({
@@ -197,8 +197,232 @@ describe("standing replay", () => {
   });
 });
 
+// FR-09: every transition in PRD section 10, in both policy profiles.
+describe.each([["production", P], ["live", L]] as const)("standing transitions, %s profile", (_name, p) => {
+  const pair = [report(0, "bad", "a"), report(1, "bad", "b")];
+  const duration = (strike: number) => Math.min(p.blockBaseSec * 2 ** (strike - 1), p.blockMaxSec);
+  const entry = 1 + duration(1);
+  const goods = (at: number, amount = 0.1, names = ["x", "y", "z"]) => names.map((c, n) => report(at + n + 1, "good", c, amount));
+
+  it("NEW to BLOCKED needs two independent clusters and b of 1", () => {
+    expect(replay(ev([report(0, "bad", "a")]), 1, p).standing).toBe("NEW");
+    const v = replay(ev(pair), 2, p);
+    expect(v).toMatchObject({ standing: "BLOCKED", strikes: 1, blockStart: 1, blockEnd: entry, rebuttalUsed: false });
+  });
+
+  it("one funding cluster with many wallets counts once", () => {
+    const sameCluster = [{ ...report(0, "bad", "f"), payer: "w1", txId: "t1" }, { ...report(1, "bad", "f"), payer: "w2", txId: "t2" }, { ...report(2, "bad", "f"), payer: "w3", txId: "t3" }];
+    expect(replay(ev(sameCluster), 3, p)).toMatchObject({ standing: "NEW", badClusters: 1 });
+  });
+
+  it("ESTABLISHED to BLOCKED takes two clusters when not contested, three when contested", () => {
+    const at = DAY + 10;
+    const thin = goods(0, 0.05);
+    expect(replay(ev(thin), at, p).standing).toBe("ESTABLISHED");
+    const two = [report(at, "bad", "a", 0.05), report(at + 1, "bad", "b", 0.05)];
+    expect(replay(ev([...thin, ...two]), at + 2, p).standing).toBe("BLOCKED");
+    const strong = goods(0, 0.2, ["x", "y", "z", "w"]);
+    expect(replay(ev([...strong, ...two]), at + 2, p).standing).toBe("ESTABLISHED");
+    expect(replay(ev([...strong, ...two, report(at + 2, "bad", "c", 0.05)]), at + 3, p).standing).toBe("BLOCKED");
+  });
+
+  it("G4: a contested merchant takes half weight, so three dust reports do not block it", () => {
+    const at = DAY + 10;
+    const strong = goods(0, 0.2, ["x", "y", "z", "w"]);
+    const dust = ["a", "b", "c"].map((c, n) => report(at + n, "bad", c, 0.005));
+    const v = replay(ev([...strong, ...dust]), at + 3, p);
+    expect(v.standing).toBe("ESTABLISHED");
+    expect(v.bScore).toBeCloseTo(v.b / 2, 5);
+  });
+
+  it("a block runs its full duration, then always PROBATION", () => {
+    expect(replay(ev(pair), entry - 1, p).standing).toBe("BLOCKED");
+    const v = replay(ev(pair), entry, p);
+    expect(v).toMatchObject({ standing: "PROBATION", probationStart: entry, strikes: 1, blockEnd: null, blockStart: null });
+    expect(v.b).toBe(0);
+  });
+
+  it("reports filed during a block change nothing", () => {
+    const during = [...pair, report(5, "good", "x", 1), report(6, "good", "y", 1), report(7, "good", "z", 1)];
+    expect(replay(ev(during), entry - 1, p)).toMatchObject({ standing: "BLOCKED", g: 0 });
+    expect(replay(ev(during), entry, p).goodClusters).toBe(0);
+  });
+
+  it("strikes double the block, and it stops at the cap", () => {
+    let reports = [...pair];
+    let blockEnd = entry;
+    for (const strike of [2, 3, 4]) {
+      const blockAt = blockEnd + 2;
+      reports = [...reports, report(blockEnd + 1, "bad", "a"), report(blockAt, "bad", "b")];
+      const v = replay(ev(reports), blockAt + 1, p);
+      expect(v.strikes).toBe(strike);
+      expect(v.blockEnd).toBe(blockAt + duration(strike));
+      blockEnd = blockAt + duration(strike);
+    }
+    expect(duration(4)).toBe(duration(3));
+    expect(p.blockMaxSec).toBe(duration(3));
+  });
+
+  it("PROBATION to hold on one bad cluster, and back when the hold ends", () => {
+    const one = [...pair, report(entry + 10, "bad", "a")];
+    expect(replay(ev(one), entry + 11, p)).toMatchObject({ standing: "PROBATION", holdUntil: entry + 10 + p.holdSec });
+    expect(replay(ev(one), entry + 10 + p.holdSec, p)).toMatchObject({ standing: "PROBATION", holdUntil: null });
+  });
+
+  it("a new bad report after a hold ended starts a new hold", () => {
+    const at = entry + 10 + p.holdSec + 1;
+    const again = [...pair, report(entry + 10, "bad", "a"), report(at, "bad", "a")];
+    expect(replay(ev(again), at + 1, p)).toMatchObject({ standing: "PROBATION", holdUntil: at + p.holdSec });
+  });
+
+  it("PROBATION or hold to BLOCKED on a second bad cluster, with strike plus 1", () => {
+    const v = replay(ev([...pair, report(entry + 10, "bad", "a"), report(entry + 20, "bad", "b")]), entry + 21, p);
+    expect(v).toMatchObject({ standing: "BLOCKED", strikes: 2, blockEnd: entry + 20 + duration(2), rebuttalUsed: false, holdUntil: null });
+  });
+
+  it("PROBATION to ESTABLISHED needs 3 clusters, delivered value, zero bad and the minimum time", () => {
+    const min = p.probationMinUnitSec;
+    const g = goods(entry);
+    expect(replay(ev([...pair, ...g]), entry + min - 1, p).standing).toBe("PROBATION");
+    expect(replay(ev([...pair, ...g]), entry + min, p).standing).toBe("ESTABLISHED");
+    expect(replay(ev([...pair, ...goods(entry, 0.03)]), entry + min, p).standing).toBe("PROBATION"); // D under 0.15
+    expect(replay(ev([...pair, ...goods(entry, 0.1, ["x", "y"])]), entry + min, p).standing).toBe("PROBATION"); // 2 clusters
+    expect(replay(ev([...pair, ...g, report(entry + 5, "bad", "a")]), entry + min, p).standing).toBe("PROBATION"); // a bad report
+  });
+
+  it("evidence from before probation does not count toward recovery", () => {
+    const before = goods(-100, 1);
+    expect(replay(ev([...before, ...pair]), entry + p.probationMinUnitSec, p)).toMatchObject({ standing: "PROBATION", goodClusters: 0, D: 0 });
+  });
+
+  it("the prober counts as at most one cluster toward recovery", () => {
+    const passes = [1, 2, 3].map((n) => ({ txId: `p${n}`, ts: entry + n, result: "pass" as const, cluster: "prober", amountUsd: 0.1 }));
+    const one = goods(entry + 10, 0.1, ["x"]);
+    expect(replay(ev([...pair, ...one], { probes: passes }), entry + p.probationMinUnitSec + 20, p).standing).toBe("PROBATION");
+    const two = goods(entry + 10, 0.1, ["x", "y"]);
+    expect(replay(ev([...pair, ...two], { probes: passes }), entry + p.probationMinUnitSec + 20, p).standing).toBe("ESTABLISHED");
+  });
+
+  it("a failed probe during probation is a bad cluster, so it starts a hold", () => {
+    const failed = [{ txId: "p", ts: entry + 5, result: "fail" as const, cluster: "prober", amountUsd: 0.01 }];
+    expect(replay(ev(pair, { probes: failed }), entry + 6, p)).toMatchObject({ standing: "PROBATION", holdUntil: entry + 5 + p.holdSec });
+  });
+
+  it("PROBATION to NEW after the quiet period, never ESTABLISHED by waiting", () => {
+    expect(replay(ev(pair), entry + p.probationToNewSec - 1, p).standing).toBe("PROBATION");
+    expect(replay(ev(pair), entry + p.probationToNewSec, p).standing).toBe("NEW");
+  });
+
+  it("NEW to ESTABLISHED needs 3 clusters, delivered value, low b, 24 hours, and no strikes", () => {
+    const g = goods(0, 0.05);
+    expect(replay(ev(g), p.firstGoodAgeSec, p).standing).toBe("NEW");
+    expect(replay(ev(g), p.firstGoodAgeSec + 2, p).standing).toBe("ESTABLISHED");
+    expect(replay(ev(goods(0, 0.01)), p.firstGoodAgeSec + 2, p).standing).toBe("NEW"); // D under 0.10
+  });
+
+  it("ESTABLISHED to NEW when its good evidence leaves the window, and not just because it is read late", () => {
+    const g = goods(0, 0.05);
+    expect(replay(ev(g), p.firstGoodAgeSec + 2, p).standing).toBe("ESTABLISHED");
+    expect(replay(ev(g), 15 * DAY, p).standing).toBe("ESTABLISHED"); // D has decayed below the promotion bar by now
+    expect(replay(ev(g), p.goodWindowSec, p).standing).toBe("ESTABLISHED");
+    expect(replay(ev(g), p.goodWindowSec + 10, p).standing).toBe("NEW");
+  });
+
+  it("a late report that completes the criteria promotes at its own time", () => {
+    const g = [report(0, "good", "x", 0.05), report(2 * DAY, "good", "y", 0.05), report(3 * DAY, "good", "z", 0.05)];
+    expect(replay(ev(g), 3 * DAY - 1, p).standing).toBe("NEW");
+    expect(replay(ev(g), 20 * DAY, p).standing).toBe("ESTABLISHED");
+  });
+
+  it("recovery is not lost by being read late either", () => {
+    const g = goods(entry);
+    expect(replay(ev([...pair, ...g]), entry + p.probationMinUnitSec + 15 * DAY, p).standing).toBe("ESTABLISHED");
+  });
+
+  it("strikes are forgotten after their memory runs out", () => {
+    expect(replay(ev(pair), 1 + p.strikeMemorySec, p).strikes).toBe(1);
+    expect(replay(ev(pair), 2 + p.strikeMemorySec, p).strikes).toBe(0);
+  });
+
+  it("a rebuttal alone never unblocks, and only one counts per episode", () => {
+    const failed = ev(pair, {
+      rebuttals: [{ ts: 2 }, { ts: 4 }],
+      probes: [{ txId: "p1", ts: 3, result: "fail", cluster: "prober", amountUsd: 0.01 }, { txId: "p2", ts: 5, result: "pass", cluster: "prober", amountUsd: 0.01 }],
+    });
+    expect(replay(ev(pair, { rebuttals: [{ ts: 2 }] }), entry - 1, p)).toMatchObject({ standing: "BLOCKED", rebuttalUsed: true });
+    expect(replay(failed, entry - 1, p).standing).toBe("BLOCKED");
+  });
+
+  it("a probe with no rebuttal does nothing during a block", () => {
+    const probes = [{ txId: "p", ts: 3, result: "pass" as const, cluster: "prober", amountUsd: 0.01 }];
+    expect(replay(ev(pair, { probes }), entry - 1, p).standing).toBe("BLOCKED");
+  });
+
+  it("a passing probe reaches PROBATION early, but not before the cooldown", () => {
+    const e = ev(pair, { rebuttals: [{ ts: 2 }], probes: [{ txId: "p", ts: 3, result: "pass", cluster: "prober", amountUsd: 0.01 }] });
+    expect(replay(e, p.rebuttalCooldownSec, p).standing).toBe("BLOCKED");
+    expect(replay(e, 1 + p.rebuttalCooldownSec, p)).toMatchObject({ standing: "PROBATION", probationStart: 1 + p.rebuttalCooldownSec });
+  });
+
+  it("a second block starts with its own rebuttal", () => {
+    const again = [...pair, report(entry + 10, "bad", "a"), report(entry + 20, "bad", "b")];
+    expect(replay(ev(again, { rebuttals: [{ ts: 2 }] }), entry + 21, p).rebuttalUsed).toBe(false);
+  });
+});
+
+describe("strikes keep a merchant out of ESTABLISHED until they expire", () => {
+  it("waiting reaches NEW, then good evidence only promotes once the strikes are gone", () => {
+    const pair = [report(0, "bad", "a"), report(1, "bad", "b")];
+    const goods = ["x", "y", "z"].map((c, n) => report(45 * DAY + n, "good", c, 0.2));
+    expect(replay(ev([...pair, ...goods]), 50 * DAY, P)).toMatchObject({ standing: "NEW", strikes: 1 });
+    expect(replay(ev([...pair, ...goods]), 62 * DAY, P)).toMatchObject({ standing: "ESTABLISHED", strikes: 0 });
+  });
+});
+
+describe("G5: at most 5 bad reports a day from one reporter, across payees", () => {
+  const row = (n: number, ts: number, payee = `0.0.${n}`) => ({ txId: `t${n}`, ts, payee });
+  it("the sixth in a rolling day is excess, and later ones count again", () => {
+    const six = [1, 2, 3, 4, 5, 6].map((n) => row(n, n * 100));
+    expect([...reporterExcess(six, 86400)]).toEqual(["t6"]);
+    expect([...reporterExcess([...six.slice(0, 5), row(6, 100 + 86400)], 86400)]).toEqual([]);
+  });
+  it("a repeat on the same payee is dropped by the per-payee rule, so it does not use up the allowance", () => {
+    const repeats = [row(1, 10, "p"), row(2, 20, "p"), row(3, 30, "p"), row(4, 40, "q"), row(5, 50, "r"), row(6, 60, "s"), row(7, 70, "t")];
+    expect([...reporterExcess(repeats, 86400)]).toEqual([]);
+  });
+  it("gives the same answer in any input order", () => {
+    const six = [1, 2, 3, 4, 5, 6].map((n) => row(n, n * 100));
+    expect([...reporterExcess([...six].reverse(), 86400)]).toEqual(["t6"]);
+  });
+});
+
 describe("decide", () => {
   const reason = (o: Partial<DecideInput>) => decide(input(o));
+
+  it("a merchant moves from UNKNOWN to NEW by declaring in ENS", () => {
+    expect(reason({ claim: null, declaration: { status: "none" } }).standing).toBe("UNKNOWN");
+    expect(reason({}).standing).toBe("NEW");
+  });
+  it("a merchant that has only a reporter's word is not blocked: settlement unknown escalates, owner block denies", () => {
+    const unknown = reason({ settlementUnknown: true });
+    expect(unknown.verdict).toBe("ESCALATE");
+    expect(unknown.reasons).toContain("settlement-unknown");
+    const local = reason({ locallyBlocked: true });
+    expect(local.verdict).toBe("DENY");
+    expect(local.reasons).toContain("locally-blocked");
+  });
+  it("an amount above the declared maximum denies on a fresh declaration, escalates on a stale one", () => {
+    const value = { ...decl, maxPriceUsd: 0.001 };
+    expect(reason({ declaration: { status: "fresh", value } }).verdict).toBe("DENY");
+    const stale = reason({ declaration: { status: "stale", value, fetchedAt: 900 } });
+    expect(stale.verdict).toBe("ESCALATE");
+    expect(stale.reasons).toContain("declared-stale-mismatch");
+  });
+  it("a stale NEW view is not usable, a stale PROBATION view is", () => {
+    const stale = (standing: StandingView["standing"]) => reason({ registry: { status: "stale", view: viewOf({ standing, strikes: 1, computedAt: 900 }) } });
+    expect(stale("NEW").reasons).toContain("registry-unavailable");
+    expect(stale("PROBATION").reasons).not.toContain("registry-unavailable");
+  });
 
   it("happy path S2", () => {
     const d = reason({});

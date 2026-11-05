@@ -15,13 +15,16 @@ export async function POST(req: Request) {
   const decl = await r.ens.fetch(b.ens);
   if (!decl) return NextResponse.json({ error: "name has no declaration" }, { status: 404 });
 
-  const row = { owner: "", payee: decl.payTo, ens: b.ens, reason: b.reason, evidenceHash: digest(`${b.reason}:${b.filedAt}`), filedAt: b.filedAt, signer: b.signer, signature: b.signature, episodeStart: 0 };
+  const { view } = await r.read(decl.payTo, Date.now() / 1000);
+  const row = { owner: "", payee: decl.payTo, ens: b.ens, reason: b.reason, evidenceHash: digest(`${b.reason}:${b.filedAt}`), filedAt: b.filedAt, signer: b.signer, signature: b.signature, episodeStart: view.blockStart ?? 0 };
   if (!(await verifyRebuttalSignature(r.ns, row).catch(() => false))) return NextResponse.json({ error: "bad signature" }, { status: 403 });
   const resolver = await r.client.getEnsResolver({ name: normalize(b.ens) });
   if (!(await holdsRebuttalRole(r.client, resolver, b.signer))) {
     return NextResponse.json({ error: "this wallet holds no role on the merchant's resolver" }, { status: 403 });
   }
   const { entityKey } = await r.arkiv.writeRebuttal(hex(process.env.PROBER_KEY!), row, r.params.reportTtlSec);
+  r.audit("rebuttal", entityKey, { payee: decl.payTo, ens: b.ens, reason: b.reason, signer: b.signer, entityKey, at: b.filedAt });
+  void r.flushAudit();
   return NextResponse.json({ status: "filed", entityKey });
 }
 

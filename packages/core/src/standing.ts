@@ -1,4 +1,4 @@
-import type { PolicyParams } from "./params.ts";
+import { REPORTER_BAD_PER_DAY, REPORTER_DAY_SEC, type PolicyParams } from "./params.ts";
 import type { Evidence, Report, StandingView, Stats } from "./types.ts";
 
 const VALUE_CAP_USD = 0.05;
@@ -61,7 +61,7 @@ export function admissibleReports(reports: Report[], now: number, p: PolicyParam
     if (new Set(list.map((r) => r.outcome)).size === 1) single.push(list[0]!);
   }
   single.sort((a, b) => a.ts - b.ts || a.txId.localeCompare(b.txId));
-  // ponytail: per-payee only; the 5-a-day limit across payees needs a query by payer, add when a reader needs it.
+  // The 5-a-day limit across payees is reporterExcess: it needs the reporter's history, which the reader fetches.
   const lastBad = new Map<string, number>();
   return single.filter((r) => {
     if (r.outcome !== "bad") return true;
@@ -70,6 +70,22 @@ export function admissibleReports(reports: Report[], now: number, p: PolicyParam
     lastBad.set(r.payer, r.ts);
     return true;
   });
+}
+
+/**
+ * G5 across payees: which of one reporter's bad reports fall beyond the daily limit. Takes verified rows only, so
+ * forged rows naming a victim's wallet cannot use up its allowance. A repeat on the same payee is already dropped
+ * by the per-payee rule, so it does not count here either.
+ */
+export function reporterExcess(rows: { txId: string; ts: number; payee: string }[], badPerPayeeWindowSec: number): Set<string> {
+  const kept: { ts: number; payee: string }[] = [];
+  const excess = new Set<string>();
+  for (const r of [...rows].sort((a, b) => a.ts - b.ts || a.txId.localeCompare(b.txId))) {
+    if (kept.some((k) => k.payee === r.payee && r.ts - k.ts < badPerPayeeWindowSec)) continue;
+    if (kept.filter((k) => r.ts - k.ts < REPORTER_DAY_SEC).length >= REPORTER_BAD_PER_DAY) excess.add(r.txId);
+    else kept.push(r);
+  }
+  return excess;
 }
 
 interface State {
@@ -106,7 +122,25 @@ function startBlock(s: State, ts: number, p: PolicyParams) {
   s.lastProbationBad = null;
 }
 
-/** Applies every time-driven transition up to `t`, in order. */
+const goodInScope = (s: State, at: number, p: PolicyParams) =>
+  s.obs.filter((o) => o.side === "good" && o.ts >= s.scopeFrom && o.ts <= at && at - o.ts <= p.goodWindowSec);
+
+function canBecomeEstablished(s: State, at: number, p: PolicyParams) {
+  const st = stats(s.obs, s.scopeFrom, at, p, false);
+  const firstGood = Math.min(Infinity, ...goodInScope(s, at, p).map((o) => o.ts));
+  return st.goodClusters >= 3 && st.D >= 0.1 && st.b < 0.5 && at - firstGood >= p.firstGoodAgeSec && strikesAt(s, at, p) === 0;
+}
+
+function canRecover(s: State, at: number, minSec: number, p: PolicyParams) {
+  const st = stats(s.obs, s.scopeFrom, at, p, false);
+  return s.probationBad.size === 0 && st.goodClusters >= 3 && st.D >= 0.15 && at - s.probationStart! >= minSec;
+}
+
+/**
+ * Applies every time-driven transition up to `t`, in order. A waiting period ends at a moment of its own, usually
+ * between events, and evidence decays after it. So promotion is judged at that moment as well as at `t`: otherwise
+ * a merchant that earned its standing would lose it just for being read late.
+ */
 function advance(s: State, t: number, p: PolicyParams) {
   if (s.standing === "BLOCKED") {
     const end = Math.min(s.blockEnd, s.earlyExitAt ?? Infinity);
@@ -116,30 +150,27 @@ function advance(s: State, t: number, p: PolicyParams) {
     s.scopeFrom = end; // evidence from before probation does not count
   }
   if (s.standing === "PROBATION") {
-    const st = stats(s.obs, s.scopeFrom, t, p, false);
     const minSec = p.probationMinUnitSec * Math.min(Math.max(strikesAt(s, t, p), 1), 3);
-    if (s.probationBad.size === 0 && st.goodClusters >= 3 && st.D >= 0.15 && t - s.probationStart! >= minSec) {
+    const ready = s.probationStart! + minSec;
+    if ((ready <= t && canRecover(s, ready, minSec, p)) || canRecover(s, t, minSec, p)) {
       s.standing = "ESTABLISHED";
       s.probationStart = null;
-      return;
-    }
-    const quietSince = s.lastProbationBad ?? s.probationStart!;
-    if (t - quietSince >= p.probationToNewSec) {
+    } else if (t - (s.lastProbationBad ?? s.probationStart!) >= p.probationToNewSec) {
       s.standing = "NEW";
       s.probationStart = null;
       s.holdUntil = null;
+    } else {
+      return;
     }
-    return;
   }
-  const st = stats(s.obs, s.scopeFrom, t, p, s.standing === "ESTABLISHED");
   if (s.standing === "NEW") {
-    const good = s.obs.filter((o) => o.side === "good" && o.ts >= s.scopeFrom && o.ts <= t && t - o.ts <= p.goodWindowSec);
-    const firstGood = good.length ? Math.min(...good.map((o) => o.ts)) : Infinity;
-    if (st.goodClusters >= 3 && st.D >= 0.1 && st.b < 0.5 && t - firstGood >= p.firstGoodAgeSec && strikesAt(s, t, p) === 0) {
-      s.standing = "ESTABLISHED";
-    }
-  } else if (st.goodClusters === 0 && st.badClusters === 0) {
-    s.standing = "NEW";
+    const firstGood = Math.min(Infinity, ...s.obs.filter((o) => o.side === "good" && o.ts >= s.scopeFrom).map((o) => o.ts));
+    const ripe = firstGood + p.firstGoodAgeSec;
+    if ((ripe <= t && canBecomeEstablished(s, ripe, p)) || canBecomeEstablished(s, t, p)) s.standing = "ESTABLISHED";
+  }
+  if (s.standing === "ESTABLISHED") {
+    const st = stats(s.obs, s.scopeFrom, t, p, true);
+    if (st.goodClusters === 0 && st.badClusters === 0) s.standing = "NEW";
   }
 }
 
@@ -148,11 +179,12 @@ function applyBad(s: State, cluster: string, ts: number, p: PolicyParams) {
     s.probationBad.add(cluster);
     s.lastProbationBad = ts;
     if (s.probationBad.size >= 2) startBlock(s, ts, p);
-    else s.holdUntil ??= ts + p.holdSec;
+    // A hold that already ran out does not cover a new bad report.
+    else if (s.holdUntil === null || s.holdUntil <= ts) s.holdUntil = ts + p.holdSec;
   } else if (s.standing !== "BLOCKED") {
     const st = stats(s.obs, s.scopeFrom, ts, p, s.standing === "ESTABLISHED");
     const contested = s.standing === "ESTABLISHED" && st.g >= 3 && st.D >= 5 * st.L;
-    if (st.badClusters >= (contested ? 3 : 2) && st.b >= 1) startBlock(s, ts, p);
+    if (st.badClusters >= (contested ? 3 : 2) && st.bScore >= 1) startBlock(s, ts, p); // bScore is b after G4 halving
   }
 }
 
@@ -204,6 +236,7 @@ export function replay(evidence: Evidence, now: number, p: PolicyParams): Standi
       s.obs.push({ ts: e.ts, side: e.side, cluster: e.cluster, amountUsd: e.amountUsd, weight: e.weight });
       if (e.side === "bad") applyBad(s, e.cluster, e.ts, p);
     }
+    advance(s, e.ts, p); // this event may be the one that completes a transition
   }
   advance(s, now, p);
 
@@ -212,6 +245,7 @@ export function replay(evidence: Evidence, now: number, p: PolicyParams): Standi
     ...st,
     standing: s.standing,
     strikes: strikesAt(s, now, p),
+    blockStart: s.standing === "BLOCKED" ? s.blockStart : null,
     blockEnd: s.standing === "BLOCKED" ? Math.min(s.blockEnd, s.earlyExitAt ?? Infinity) : null,
     probationStart: s.probationStart,
     holdUntil: s.holdUntil !== null && s.holdUntil > now ? s.holdUntil : null,

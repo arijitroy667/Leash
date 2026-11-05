@@ -20,6 +20,7 @@ describe("delivery check", () => {
   });
   it("no schema can only see status and empty bodies", () => {
     expect(deliveryCheck({ ...ok, schema: [], body: "junk" }).ok).toBe(true);
+    expect(deliveryCheck({ ...ok, schema: [], contentType: null })).toEqual({ ok: false, reason: "content-type" });
   });
 });
 

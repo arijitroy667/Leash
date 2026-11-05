@@ -22,8 +22,9 @@ Before each payment, the guard:
 
 1. Queries reports, probes and rebuttals for the payee, by `ns` and `payee`, newest first.
 2. Re-verifies each report on Mirror Node: the payment succeeded, the token, payee, payer and amount match, and the payer's key signed it. Rows that fail are ignored, and the explorer shows them as ignored with the reason.
-3. Takes time from Mirror Node, never from the entity.
-4. Replays the verified evidence in consensus order through the pure engine in `packages/core`, which gives the merchant's standing.
+3. Takes time from Mirror Node, never from the entity, and drops any row whose stated time disagrees.
+4. Queries each bad reporter's history by `payer`, because a reporter's sixth bad report in a day is ignored whichever payee it names. Only verified rows count, so forged rows cannot use up a victim's allowance.
+5. Replays the verified evidence in consensus order through the pure engine in `packages/core`, which gives the merchant's standing.
 
 ## Reader caps
 
@@ -31,6 +32,7 @@ Before each payment, the guard:
 | --- | --- | --- |
 | Query page | 100 rows | The node's limit; the SDK throws above it |
 | Reports read per payee | 200, over two pages | Bounds latency and Mirror calls |
+| Bad reports read per reporter | 100 | Bounds the daily-limit check; skipped entirely for a reporter with 5 or fewer |
 | Verdict cache by transaction id | Local SQLite | A verified payment does not need rechecking |
 
 A payee with more than 200 live reports is judged on the newest 200.

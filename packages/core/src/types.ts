@@ -6,7 +6,7 @@ export type ReasonCode =
   | "blocked" | "merchant-cap-hard" | "budget-exceeded" | "escalation-rate-limit" | "risk-band"
   | "unsupported-asset" | "unknown-merchant" | "unknown-origin" | "limit-exceeded" | "merchant-cap"
   | "new-identity-budget" | "price-drift" | "probation-limit" | "probation-hold" | "registry-unavailable"
-  | "declared-stale-mismatch" | "unverified-reports" | "safe-mode";
+  | "declared-stale-mismatch" | "unverified-reports" | "safe-mode" | "settlement-unknown" | "locally-blocked";
 
 /** A report already verified by the reader against Mirror Node and the payer's key. */
 export interface Report {
@@ -51,6 +51,7 @@ export interface Stats {
 export interface StandingView extends Stats {
   standing: Exclude<Standing, "UNKNOWN">;
   strikes: number;
+  blockStart: number | null;
   blockEnd: number | null;
   probationStart: number | null;
   holdUntil: number | null;
@@ -101,6 +102,8 @@ export interface Decision {
   factors: { bad: number; loss: number; trust: number; exposure: number; identity: number };
   limits: { autoApprove: number; cap24h: number; capUsed24h: number };
   challengeHash: string;
+  /** Set when this decision opened an approval. */
+  approvalId?: string;
   merchantKey: string;
   amountUsd: number;
   degraded?: { dependency: string; staleSec: number };

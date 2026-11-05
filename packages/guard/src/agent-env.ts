@@ -8,10 +8,16 @@ import { createLeashGuard } from "./guard.ts";
 
 const hex = (k: string) => (k.startsWith("0x") ? k : `0x${k}`) as `0x${string}`;
 
-/** Builds a real payment client for one wallet from the environment. */
-export function rawClient(account: string, key: string) {
+/**
+ * Builds a real payment client for one wallet. Its own spend controls are off because they reject a challenge before
+ * any hook sees it, which would leave a worthless token or an oversized price with no decision, reason or audit.
+ * The guard or the prober's hook is the spend control. USDC is chosen when a merchant offers several assets.
+ */
+export function rawClient(account: string, key: string, usdc = "0.0.429274") {
   const signer = createClientHederaSigner(account, PrivateKey.fromStringECDSA(key), { network: "hedera:testnet" });
-  return new x402Client().register("hedera:*" as never, new ExactHederaScheme(signer));
+  const client = new x402Client((_version, requirements) => requirements.find((r) => r.asset === usdc) ?? requirements[0]!);
+  client.setSpendControls({ allowedAssets: true, maxAmountPerPayment: false });
+  return client.register("hedera:*" as never, new ExactHederaScheme(signer));
 }
 
 export function buildAgent(letter: string, env: NodeJS.ProcessEnv = process.env) {
@@ -34,7 +40,7 @@ export function buildAgent(letter: string, env: NodeJS.ProcessEnv = process.env)
     dbPath: env.LEASH_DB ?? ".leash/leash.sqlite",
     proberAddresses: env.PROBER_KEY ? [privateKeyToAccount(hex(env.PROBER_KEY)).address] : [],
   });
-  const client = rawClient(account, key);
+  const client = rawClient(account, key, env.HEDERA_USDC);
   guard.attach(client as never);
   return { guard, client, paidFetch: guard.guardedFetch(wrapFetchWithPayment(fetch, client)) };
 }

@@ -1,2 +1,4 @@
 .next/
 next-env.d.ts
+# Written by next dev on every start
+AGENTS.md

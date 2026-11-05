@@ -146,5 +146,11 @@ for (const m of merchants) {
   console.log(`  rebuttal role for ${rebuttalHolder}: ${after}`);
 }
 
-console.log("\nENS ready. Fund the rebuttal holder with a little Sepolia ETH only if it must write records itself.");
+// The role holder writes its own leash.rebuttal record, so it needs a little gas.
+if ((await pub.getBalance({ address: rebuttalHolder })) < 1_000_000_000_000_000n) {
+  await sent(await wallet.sendTransaction({ to: rebuttalHolder, value: 3_000_000_000_000_000n }));
+  console.log(`sent 0.003 Sepolia ETH to the role holder ${rebuttalHolder}`);
+}
+
+console.log("\nENS ready.");
 process.exit(0);

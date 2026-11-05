@@ -20,6 +20,10 @@ export interface DecideInput {
   unverifiedBadClusters?: number;
   safeMode?: boolean;
   familyTaint?: boolean;
+  /** A payment for this challenge may still have settled, and Mirror Node cannot say. */
+  settlementUnknown?: boolean;
+  /** The owner rejected this payee and blocked it on this machine. */
+  locallyBlocked?: boolean;
   limits: Limits;
   params: PolicyParams;
 }
@@ -59,7 +63,11 @@ export function decide(i: DecideInput): Decision {
       if (d.status === "fresh") deny.add("declared-mismatch");
       else esc.add("declared-stale-mismatch");
     }
-    if (A > decl.maxPriceUsd) deny.add("over-declared-max");
+    // A stale declaration may be out of date, so it can only ever escalate.
+    if (A > decl.maxPriceUsd) {
+      if (d.status === "fresh") deny.add("over-declared-max");
+      else esc.add("declared-stale-mismatch");
+    }
   }
 
   // Registry
@@ -70,7 +78,7 @@ export function decide(i: DecideInput): Decision {
     const age = now - view.computedAt;
     if (view.standing === "BLOCKED") usable = view.blockEnd !== null && view.blockEnd > now;
     else if (view.standing === "PROBATION") usable = true;
-    else usable = age <= p.standingStaleSec;
+    else usable = view.standing === "ESTABLISHED" && age <= p.standingStaleSec;
     if (usable) degraded = { dependency: "arkiv", staleSec: age };
   }
   if (!usable) {
@@ -115,6 +123,8 @@ export function decide(i: DecideInput): Decision {
 
   if ((i.unverifiedBadClusters ?? 0) >= 2) esc.add("unverified-reports");
   if (i.safeMode) esc.add("safe-mode");
+  if (i.settlementUnknown) esc.add("settlement-unknown");
+  if (i.locallyBlocked) deny.add("locally-blocked");
 
   if (!deny.size && esc.size && i.escalationsLastHour >= limits.escalationRatePerHour) deny.add("escalation-rate-limit");
 

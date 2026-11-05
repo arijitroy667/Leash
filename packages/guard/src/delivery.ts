@@ -10,8 +10,9 @@ export interface DeliveryInput {
 export function deliveryCheck(i: DeliveryInput): { ok: true } | { ok: false; reason: string } {
   if (i.status < 200 || i.status >= 300) return { ok: false, reason: "http-status" };
   if (!i.body.trim()) return { ok: false, reason: "empty-body" };
+  if (!i.contentType) return { ok: false, reason: "content-type" };
   if (!i.schema.length) return { ok: true };
-  if (!i.contentType?.includes("json")) return { ok: false, reason: "content-type" };
+  if (!i.contentType.includes("json")) return { ok: false, reason: "content-type" };
   let parsed: unknown;
   try {
     parsed = JSON.parse(i.body);

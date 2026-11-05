@@ -4,6 +4,7 @@ import { DatabaseSync } from "node:sqlite";
 import type { Decision, StandingView } from "@leash/core";
 
 const DAY = 86400;
+const HEALTHY_READS_TO_RECOVER = 3;
 
 export interface Approval {
   id: string;
@@ -51,7 +52,15 @@ export class Store {
       CREATE TABLE IF NOT EXISTS cache_account (account TEXT PRIMARY KEY, body TEXT);
       CREATE TABLE IF NOT EXISTS probe_budget (day TEXT PRIMARY KEY, spent REAL);
       CREATE TABLE IF NOT EXISTS health (dep TEXT PRIMARY KEY, ok INTEGER, at REAL, detail TEXT);
+      CREATE TABLE IF NOT EXISTS settlements (agent TEXT, hash TEXT, tx_id TEXT, at REAL, PRIMARY KEY (agent, hash));
+      CREATE TABLE IF NOT EXISTS local_blocks (payee TEXT PRIMARY KEY, at REAL);
     `);
+    // Databases from before safe-mode recovery have no such column. Healthy is NULL, otherwise healthy reads so far.
+    try {
+      this.db.exec("ALTER TABLE health ADD COLUMN recovering INTEGER");
+    } catch {
+      /* already there */
+    }
   }
 
   saveDecision(agent: string, d: Decision) {
@@ -120,8 +129,49 @@ export class Store {
     const changed = this.db.prepare("UPDATE approvals SET status='used' WHERE id=? AND status='approved'").run(a.id).changes;
     return Number(changed) === 1 ? a : undefined;
   }
-  countNewEscalations(agent: string, now: number): number {
-    return Number((this.db.prepare("SELECT COUNT(*) c FROM approvals WHERE agent=? AND created_at>?").get(agent, now - 3600) as { c: number }).c);
+  /** The challenge being decided is not new if it already has an approval, or an approved payment could never run. */
+  countNewEscalations(agent: string, now: number, exceptHash = ""): number {
+    return Number((this.db.prepare("SELECT COUNT(*) c FROM approvals WHERE agent=? AND created_at>? AND challenge_hash<>?").get(agent, now - 3600, exceptHash) as { c: number }).c);
+  }
+  escalationsByAgent(now: number): { agent: string; count: number }[] {
+    return (this.db.prepare("SELECT agent, COUNT(*) c FROM approvals WHERE created_at>? GROUP BY agent").all(now - 3600) as { agent: string; c: number }[])
+      .map((r) => ({ agent: r.agent, count: Number(r.c) }));
+  }
+
+  /** A payment that did not visibly deliver may still have settled. Kept until Mirror Node can say. */
+  settlementOpen(agent: string, hash: string, txId: string, at: number) {
+    this.db.prepare("INSERT OR REPLACE INTO settlements VALUES (?,?,?,?)").run(agent, hash, txId, at);
+  }
+  settlementGet(agent: string, hash: string): { txId: string; at: number } | undefined {
+    const r = this.db.prepare("SELECT tx_id, at FROM settlements WHERE agent=? AND hash=?").get(agent, hash) as { tx_id: string; at: number } | undefined;
+    return r && { txId: r.tx_id, at: r.at };
+  }
+  settlementClose(agent: string, hash: string) {
+    this.db.prepare("DELETE FROM settlements WHERE agent=? AND hash=?").run(agent, hash);
+  }
+
+  blockLocally(payee: string, at: number) {
+    this.db.prepare("INSERT OR REPLACE INTO local_blocks VALUES (?,?)").run(payee, at);
+  }
+  isLocallyBlocked(payee: string): boolean {
+    return !!this.db.prepare("SELECT 1 FROM local_blocks WHERE payee=?").get(payee);
+  }
+
+  /** Spend for the budget view: session, rolling day, and each merchant with its latest cap. */
+  budget(agent: string, session: string, now: number) {
+    const from = now - DAY;
+    const total = (where: string, ...args: (string | number)[]) =>
+      Number((this.db.prepare(`SELECT COALESCE(SUM(amount),0) s FROM spend_ledger WHERE agent=? AND ${where}`).get(agent, ...args) as { s: number }).s);
+    const merchants = this.db.prepare("SELECT merchant, SUM(amount) spent FROM spend_ledger WHERE agent=? AND at>? GROUP BY merchant").all(agent, from) as { merchant: string; spent: number }[];
+    return {
+      sessionSpent: total("session=?", session),
+      dailySpent: total("at>?", from),
+      perMerchant: merchants.map((m) => {
+        const last = this.db.prepare("SELECT body FROM decisions WHERE agent=? AND merchant=? ORDER BY at DESC LIMIT 1").get(agent, m.merchant) as { body: string } | undefined;
+        const cap24h: number | null = last ? JSON.parse(last.body).limits.cap24h : null;
+        return { merchant: m.merchant, spent: m.spent, cap24h, remaining: cap24h === null ? null : Math.max(0, cap24h - m.spent) };
+      }),
+    };
   }
 
   enqueue(kind: string, dedupe: string, payload: unknown) {
@@ -176,10 +226,17 @@ export class Store {
   }
 
   setHealth(dep: string, ok: boolean, at: number, detail = "") {
-    this.db.prepare("INSERT OR REPLACE INTO health VALUES (?,?,?,?)").run(dep, ok ? 1 : 0, at, detail);
+    const prev = (this.db.prepare("SELECT recovering FROM health WHERE dep=?").get(dep) as { recovering: number | null } | undefined)?.recovering ?? null;
+    const recovering = !ok ? 0 : prev === null || prev + 1 >= HEALTHY_READS_TO_RECOVER ? null : prev + 1;
+    this.db.prepare("INSERT OR REPLACE INTO health (dep, ok, at, detail, recovering) VALUES (?,?,?,?,?)").run(dep, ok ? 1 : 0, at, detail, recovering);
   }
-  healthAll(): { dep: string; ok: boolean; at: number; detail: string }[] {
-    return (this.db.prepare("SELECT * FROM health").all() as any[]).map((r) => ({ dep: r.dep, ok: !!r.ok, at: r.at, detail: r.detail }));
+  healthAll(): { dep: string; ok: boolean; at: number; detail: string; recovering: boolean }[] {
+    return (this.db.prepare("SELECT * FROM health").all() as any[]).map((r) => ({ dep: r.dep, ok: !!r.ok, at: r.at, detail: r.detail, recovering: !!r.ok && r.recovering !== null }));
+  }
+  /** Two or more of ENS, Arkiv and Mirror failing, or not yet back for three healthy reads in a row. */
+  safeMode(): boolean {
+    const r = this.db.prepare("SELECT COUNT(*) c FROM health WHERE dep IN ('ens','arkiv','mirror') AND recovering IS NOT NULL").get() as { c: number };
+    return Number(r.c) >= 2;
   }
 
   probeSpent(day: string): number {
