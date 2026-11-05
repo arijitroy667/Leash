@@ -58,7 +58,7 @@ export async function readVerifiedEvidence(opts: {
 
   const reports: Report[] = [];
   const unverified = new Set<string>();
-  const rows: VerifiedEvidence["rows"] = { reports: [], probes: rawProbes, rebuttals: rawRebuttals };
+  const rows: VerifiedEvidence["rows"] = { reports: [], probes: [], rebuttals: [] };
 
   for (const r of rawReports) {
     const mark = (valid: boolean, why?: string) => rows.reports.push({ ...r, valid, why });
@@ -97,11 +97,15 @@ export async function readVerifiedEvidence(opts: {
     const facts = await mirror.tx(p.txId).catch(() => null);
     if (!facts?.success || facts.payee !== p.payee || facts.token !== usdc) continue;
     probes.push({ txId: p.txId, ts: facts.consensusTs!, result: p.result, cluster: `prober:${facts.payer}`, amountUsd: p.amountMicroUsd / 1e6 });
+    rows.probes.push(p); // anyone can write an entity, so only verified rows may be shown or acted on
   }
 
   const rebuttals: Evidence["rebuttals"] = [];
   for (const r of rawRebuttals) {
-    if (await opts.verifyRebuttal(r).catch(() => false)) rebuttals.push({ ts: r.filedAt });
+    if (await opts.verifyRebuttal(r).catch(() => false)) {
+      rebuttals.push({ ts: r.filedAt });
+      rows.rebuttals.push(r);
+    }
   }
 
   return { evidence: { reports, probes, rebuttals }, unverifiedBadClusters: unverified.size, rows };

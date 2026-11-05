@@ -9,6 +9,9 @@ Kept live during the build. Newest findings are added at the end.
 - The README example shows `ExpirationTime.fromDays`, while shorter lifetimes (`fromSeconds`) are only visible in the types.
 
 - A query page is capped at 100 rows, and the SDK throws on a higher limit before sending. Clear error, good. We page twice for our 200-report reader cap.
+- Errors from a timed-out request quote the full RPC URL, and the URL contains the access key, so a crash log printed our key. We now strip URLs from anything we log. Sending the key in a header instead would avoid this for every SDK user.
+- Reads work with no access key, through a public endpoint the SDK warns is heavily rate limited. That makes a public explorer possible with no secret, so we cache its responses for 5 seconds.
+- We hit occasional read timeouts on the testnet during rehearsals. Reads now retry in the demo runner, and guards escalate rather than guess.
 
 ## Disclosure: live policy profile
 

@@ -12,9 +12,196 @@ An agent's payment gets one of three verdicts before anything is signed:
 
 **How it works:** the guard identifies the payee through ENSv2, reads proven history from Arkiv, re-verifies every report against Hedera Mirror Node, decides, and files a signed report after each paid call.
 
-## Status
+## Try it
 
-Work in progress: see `BUILD_PLAN.md`. Settled transaction ids, writer wallets and the live link are added here as they exist.
+**Public explorer:** https://herd-explorer.vercel.app/explorer
+
+It reads ENSv2, Arkiv and Hedera Mirror Node directly, and holds no keys or database. The registry menu switches between the demo registry (live profile, entities expire in 18 minutes) and `mumbai-prod` (production profile, 60-day expiry).
+
+**Query the registry yourself**, with no key or wallet:
+
+```bash
+npx tsx apps/demo/src/arkiv-query.ts mumbai-prod 0.0.11323813
+```
+
+## Proof on public networks
+
+Every link is a real testnet event. The lemon and probe payments come from a rehearsal, and are replaced after the final run.
+
+| Event | Link |
+| --- | --- |
+| Good payment, with no human (production profile) | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793894734-804893074) |
+| Payment to lemon, which then delivered junk | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793894765-596685111) |
+| Probe payment after a rebuttal | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793894817-695843570) |
+| HCS audit topic, with decision and denial messages (`0.0.11323820`, messages 1 and 4) | [HashScan](https://hashscan.io/testnet/topic/0.0.11323820) |
+
+**Hedera x402.** We use the Blocky402 facilitator. Its `GET /supported` returns `{"scheme":"exact","network":"hedera:testnet","extra":{"feePayer":"0.0.7162784"}}`. That output does not list assets: we pin USDC `0.0.429274` in the guard, and DENY anything else as `unsupported-asset`. No report counts until Mirror Node confirms the payment succeeded, in that token, with that payer, payee and amount, and the payer's key has signed it.
+
+**Arkiv writer wallets**
+
+| Wallet | Hedera account | Arkiv owner |
+| --- | --- | --- |
+| Agent A | `0.0.11323807` | `0x7f0dae584D0ad92150c98f9bE046f393b85A2aAB` |
+| Agent B | `0.0.11323809` | `0x01312fA81A82b2a254f77f0eF0e8Ee4Bfc4b5D2C` |
+| Agent C | `0.0.11323811` | `0xAC7685aa37b232dA98623F657838453333693983` |
+| Prober | `0.0.11323812` | `0x0C8e8B9f0B9d5ddE7f3939e97094f6FA16793674` |
+
+Rehearsals also used the two funder accounts as agents, because new agents count at half weight for their first 24 hours.
+
+**ENSv2 on Sepolia**
+
+| Name | Resolver | Role |
+| --- | --- | --- |
+| `herd-weather.eth` | `0x27B85f92dF5975ABda37fFD14F0ad56b87BC00F2` | Honest merchant |
+| `herd-lemon.eth` | `0x7f77622E13638dEd82B78C277d2B825d37E50300` | Takes payment and returns junk, on purpose |
+
+Each name has `herd.*` text records. `0xa51B1B8EC0608FA2DafEC4E3D5D67a7348C0B5d7` holds `ROLE_SET_TEXT` for only the `herd.rebuttal` key on the lemon resolver, and that role is what lets it file a rebuttal. Names and records are read live and are not hard-coded in the guard. The merchants are run by the team, which we disclose: lemon is a real merchant behaving badly on purpose.
+
+## How it fits together
+
+**Architecture**
+
+```mermaid
+flowchart LR
+  subgraph AGENT["Agent runtime"]
+    LLM["LLM agent"]
+    SDK["@herd/guard SDK<br/>x402Client hooks and guardedFetch"]
+    MCPS["@herd/mcp server<br/>tools, holds the signer"]
+  end
+  subgraph CORE["@herd/core - pure and deterministic"]
+    ENG["Decision engine<br/>hard rules - standing - limits - score - lattice"]
+  end
+  subgraph LOCAL["Local durable state - SQLite"]
+    CACHE["Policy and standing caches"]
+    LEDGER["Spend ledger and replay store"]
+    APPR["Pending approvals"]
+    OUTBOX["Outbox: reports and HCS audit"]
+  end
+  subgraph ENSG["ENSv2"]
+    ENS["Merchant names<br/>herd.* text keys and EAC roles"]
+  end
+  subgraph ARKG["Arkiv registry"]
+    ARK["reports - rebuttals - probes<br/>wallet-owned, 60 day expiry"]
+  end
+  subgraph HEDG["Hedera"]
+    FAC["x402 facilitator"]
+    HEDERA["Settlement ledger"]
+    MIRROR["Mirror Node REST"]
+    HCS["HCS audit topic"]
+  end
+  subgraph OPS["Herd services"]
+    DASH["Dashboard<br/>approvals - explorer - decisions"]
+    PROBER["Prober<br/>probe retests and delivery verifier"]
+  end
+  MERCH["Merchant API<br/>answers with HTTP 402"]
+
+  LLM -->|"fetch through SDK"| SDK
+  LLM -->|"MCP tool calls"| MCPS
+  SDK --> ENG
+  MCPS --> ENG
+  ENG -->|"resolve declaration"| ENS
+  ENG -->|"query reports"| ARK
+  ENG -->|"verify reporter txs"| MIRROR
+  ENG --- CACHE
+  ENG --- LEDGER
+  ENG --- APPR
+  SDK -->|"request, 402, signed payment"| MERCH
+  MCPS -->|"request, 402, signed payment"| MERCH
+  MERCH -->|"verify and settle"| FAC
+  FAC -->|"submit transfer"| HEDERA
+  HEDERA --> MIRROR
+  ENG --> OUTBOX
+  OUTBOX -->|"async reports"| ARK
+  OUTBOX -->|"async audit"| HCS
+  DASH -->|"signed approval"| APPR
+  DASH -->|"read evidence"| ARK
+  DASH -->|"read audit"| HCS
+  PROBER -->|"probe payment"| MERCH
+  PROBER -->|"probe results"| ARK
+  ENS -.->|"role holder may sign rebuttal"| DASH
+```
+
+**Merchant standing:** a block always ends in probation.
+
+```mermaid
+stateDiagram-v2
+  [*] --> UNKNOWN: no ENS declaration
+  [*] --> NEW: declared in ENS, no evidence
+  UNKNOWN --> NEW: merchant declares in ENS
+  NEW --> ESTABLISHED: 3 good clusters, D 0.10 or more, b under 0.5, no strikes
+  ESTABLISHED --> NEW: no good evidence for 21 days
+  NEW --> BLOCKED: 2 bad clusters and b 1.0 or more
+  ESTABLISHED --> BLOCKED: 2 bad clusters and b 1.0 or more, 3 if contested
+  BLOCKED --> PROBATION: block expires
+  BLOCKED --> PROBATION: valid rebuttal, probe passes, 24h cooldown
+  PROBATION --> ESTABLISHED: 3 good clusters, D 0.15 or more, zero bad, minimum time
+  PROBATION --> NEW: 21 days, zero bad, criteria unmet
+  PROBATION --> HOLD: one bad cluster
+  HOLD --> PROBATION: 72h with no second cluster
+  PROBATION --> BLOCKED: 2 bad clusters, strike plus 1
+  HOLD --> BLOCKED: second bad cluster, strike plus 1
+```
+
+**Decision pipeline**, which runs before anything is signed
+
+```mermaid
+flowchart TD
+  A["x402 challenge received"] --> B["Canonicalize and hash the challenge"]
+  B --> C{"Hard global rules<br/>ceiling, replay, stale, declared mismatch"}
+  C -->|"violated"| DENY["DENY"]
+  C -->|"clear"| D["Resolve merchant in ENS<br/>cache on failure"]
+  D --> E["Read evidence from Arkiv<br/>verify reports on Mirror Node"]
+  E --> F["Derive standing<br/>UNKNOWN NEW ESTABLISHED BLOCKED PROBATION"]
+  F --> G{"Standing rule"}
+  G -->|"BLOCKED"| DENY
+  G -->|"UNKNOWN"| ESC["ESCALATE"]
+  G -->|"NEW, ESTABLISHED, PROBATION"| H["Limits<br/>per-call, 24h merchant cap, budgets, price drift"]
+  H -->|"hard cap or budget exceeded"| DENY
+  H -->|"soft limit exceeded"| ESC
+  H -->|"within limits"| I["Risk score R"]
+  I --> J{"Band"}
+  J -->|"R under 35"| ALLOW["ALLOW"]
+  J -->|"35 up to 70"| ESC
+  J -->|"70 or more, 2 or more bad clusters"| DENY
+  J -->|"70 or more, under 2 bad clusters"| ESC
+  ESC --> K["Create approval card<br/>abort payment until signed approval"]
+  ALLOW --> L["Pay, verify delivery, queue report"]
+```
+
+**Happy path**
+
+```mermaid
+sequenceDiagram
+  autonumber
+  participant A as Agent
+  participant G as Guard SDK or MCP
+  participant M as Merchant API
+  participant E as ENSv2
+  participant R as Arkiv registry
+  participant F as Facilitator
+  participant H as Hedera and Mirror Node
+  A->>G: Fetch forecast through guardedFetch or herd_pay_request
+  G->>M: GET forecast
+  M-->>G: 402 with requirements, 0.005 USD to payTo, extra.herdEns
+  G->>G: Hash challenge, check replay window and ceiling
+  G->>E: Resolve herd.* keys of the merchant name
+  E-->>G: payTo, maxPrice, domains
+  G->>G: payTo and origin match, price within declared max
+  G->>R: Query herd.report for this payee
+  R-->>G: Reports, re-verified on Mirror Node
+  G->>G: Standing NEW, limit 0.01, R 27.5, verdict ALLOW
+  G->>M: Retry with signed payment
+  M->>F: Verify and settle
+  F->>H: Submit transfer
+  H-->>F: SUCCESS
+  F-->>M: Settled
+  M-->>G: 200 with data and settlement header
+  G->>G: Body check passes (status, type, herd.schema)
+  G-->>A: Data
+  G-->>H: Outbox confirms SUCCESS on Mirror Node, with retry
+  G-->>R: Outbox files a signed good report
+  G-->>H: Outbox publishes HCS audit message
+```
 
 ## Run it
 
@@ -35,9 +222,12 @@ Then, each in its own terminal:
 
 ```bash
 pnpm --filter @herd/dashboard dev          # owner console on :3100
-npx tsx apps/demo/src/prober.ts            # probe retests
-npx tsx apps/demo/src/show.ts all          # the demo scenes
+npx tsx apps/demo/src/show.ts all          # the demo scenes, in the filmed order
 ```
+
+The prober also runs alone with `npx tsx apps/demo/src/prober.ts`. Leave it off during the show: scene 5a runs its own probe, and an extra probe on entering probation would fail on lemon and start a hold early, which is correct behaviour but out of order for the demo.
+
+For scene 7, start the show with `SHOW_RELAY=1 ARKIV_RPC_URL=http://127.0.0.1:8765` so Arkiv traffic passes through the relay it cuts.
 
 ## Use it
 
@@ -92,6 +282,7 @@ The PRD asks for any rule it does not contain to be recorded here, with a reason
 | The G5 per-payee window is a live-profile duration (18 s) | Otherwise agent A's second bad report in scene 6 would be ignored |
 | Evidence scope stays at probation entry after probation ends | In the live profile, decay is not shortened, so evidence from before a block could trigger another |
 | `stale-challenge` uses the time this request received its 402 | A fresh 402 for the same price has the same hash, so a first-seen time could never clear |
+| The explorer's domain search matches only the merchants this deployment lists | Arkiv has no index of domains, and ENS has no reverse lookup from a domain |
 | "Reject and block locally" is not built | Reject is enough for the demo; add a local deny list if it is needed |
 | Safe mode ends on the next healthy read, not after three | Simpler; the upgrade is a counter on the health table |
 | Merchant facilitator failover is a redeploy, not automatic | Two facilitators made the advertised `feePayer` vary by deployment, which is part of the signed payment |
@@ -100,7 +291,8 @@ The PRD asks for any rule it does not contain to be recorded here, with a reason
 ## Disclosures
 
 - **AI use:** this project was built with Claude Code, which wrote most of the code under the team's direction.
-- **Pre-existing work:** `Herd Immunity PRDv2.1.md` is planning material written before the event, and is disclosed as such. All code was written during the event.
+- **Pre-existing work:** `Herd Immunity PRDv2.1.md` is planning material written before any code, and is disclosed as such. No code predates 15:03 IST on Nov 5, 2026.
+- **Commit history:** the first commit squashes 11 earlier commits made between 15:03 and 21:03 IST on Nov 5, 2026. Later commits are dated as they happen.
 - **Testnets:** Hedera testnet, Arkiv testnet and ENSv2 on Sepolia, with test tokens. ENS's Sepolia registrar charges fees in its own test token, named `MockUSDC`. We deploy no mock contracts.
 - **Live profile:** the demo uses a disclosed policy profile where 1 policy day = 18 real seconds. See `arkiv/friction.md`.
 

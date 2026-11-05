@@ -1,5 +1,5 @@
 import { PublicKey } from "@hiero-ledger/sdk";
-import type { Store } from "./store.ts";
+import { safeError, type Store } from "./store.ts";
 
 export interface TxFacts {
   found: boolean;
@@ -42,7 +42,7 @@ export class Mirror {
       this.store.setHealth("mirror", true, now);
       return r.status === 404 ? null : r.json();
     } catch (e) {
-      this.store.setHealth("mirror", false, now, String(e).slice(0, 120));
+      this.store.setHealth("mirror", false, now, safeError(e));
       throw e;
     }
   }

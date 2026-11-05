@@ -14,7 +14,7 @@ import { deliveryCheck } from "./delivery.ts";
 import { Ens, validName, type DeclarationResult } from "./ens.ts";
 import { PUBLIC_FUNDERS, digest, holdsRebuttalRole, readVerifiedEvidence, reportMessage, verifyRebuttalSignature } from "./evidence.ts";
 import { Mirror } from "./mirror.ts";
-import { Store, type Approval } from "./store.ts";
+import { safeError, Store, type Approval } from "./store.ts";
 
 const nowSec = () => Date.now() / 1000;
 const SAFE_MODE_DEPS = ["ens", "arkiv", "mirror"];
@@ -107,7 +107,7 @@ export function createHerdGuard(cfg: GuardConfig) {
       store.setHealth("arkiv", true, now);
       return { status: "fresh", view, unverified: v.unverifiedBadClusters };
     } catch (e) {
-      store.setHealth("arkiv", false, now, String(e).slice(0, 120));
+      store.setHealth("arkiv", false, now, safeError(e));
       return cached ? { status: "stale", view: cached, unverified: 0 } : { status: "none", unverified: 0 };
     }
   }
@@ -274,7 +274,7 @@ export function createHerdGuard(cfg: GuardConfig) {
         if ((await deliverOutboxItem(item)) === "done") store.outboxDone(item.id);
         else store.outboxRetry(item.id, item.attempts, now);
       } catch (e) {
-        store.setHealth(item.kind === "hcs" ? "hcs" : "arkiv", false, now, String(e).slice(0, 120));
+        store.setHealth(item.kind === "hcs" ? "hcs" : "arkiv", false, now, safeError(e));
         store.outboxRetry(item.id, item.attempts, now);
       }
     }

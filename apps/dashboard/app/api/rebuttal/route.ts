@@ -27,6 +27,7 @@ export async function POST(req: Request) {
 
 /** The exact text the wallet must sign. */
 export async function GET(req: Request) {
+  if (PUBLIC_MODE) return NextResponse.json({ error: "rebuttal desk is not public" }, { status: 403 });
   const u = new URL(req.url);
   const ens = u.searchParams.get("ens") ?? "";
   const reason = u.searchParams.get("reason") ?? "";

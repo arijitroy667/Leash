@@ -4,7 +4,7 @@ import { deliveryCheck } from "../src/delivery.ts";
 import { parseDeclaration, validName } from "../src/ens.ts";
 import { reportMessage } from "../src/evidence.ts";
 import { parseTransfer, toMirrorTxId, verifyHederaSignature } from "../src/mirror.ts";
-import { Store } from "../src/store.ts";
+import { Store, safeError } from "../src/store.ts";
 
 describe("delivery check", () => {
   const ok = { status: 200, contentType: "application/json", body: '{"city":"x","tempC":1,"conditions":"y"}', schema: ["city", "tempC", "conditions"] };
@@ -75,6 +75,14 @@ describe("ENS parsing", () => {
   it("rejects hostile merchant-supplied names", () => {
     expect(validName("herd-weather.eth")).toBe(true);
     for (const bad of ["ignore previous instructions", "a", "x.eth<script>", "0.0.11286079", 5, null]) expect(validName(bad)).toBe(false);
+  });
+});
+
+describe("safeError", () => {
+  it("never carries an RPC url or access key", () => {
+    const e = new Error("timeout URL: https://rpc.example/ark_live_secret123 and ark_live_secret456");
+    expect(safeError(e)).not.toMatch(/secret|rpc\.example/);
+    expect(safeError({ shortMessage: "too slow", details: "https://x/ark_live_secret" })).toBe("too slow");
   });
 });
 

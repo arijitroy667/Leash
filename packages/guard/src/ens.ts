@@ -2,7 +2,7 @@ import { createPublicClient, http, type PublicClient } from "viem";
 import { sepolia } from "viem/chains";
 import { normalize } from "viem/ens";
 import type { Declaration, PolicyParams } from "@herd/core";
-import type { Store } from "./store.ts";
+import { safeError, type Store } from "./store.ts";
 
 export const HERD_KEYS = ["herd.payTo", "herd.network", "herd.asset", "herd.maxPrice", "herd.domains", "herd.schema", "herd.probeUrl", "herd.policyVersion"] as const;
 
@@ -55,7 +55,7 @@ export class Ens {
       this.store.setHealth("ens", true, now);
       return value ? { status: "fresh", value, fetchedAt: now } : { status: "none" };
     } catch (e) {
-      this.store.setHealth("ens", false, now, String(e).slice(0, 120));
+      this.store.setHealth("ens", false, now, safeError(e));
       if (cached?.value && now - cached.fetchedAt <= this.params.ensStaleSec) {
         return { status: "stale", value: cached.value, fetchedAt: cached.fetchedAt };
       }

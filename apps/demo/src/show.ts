@@ -7,7 +7,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { probeOnce } from "./prober.ts";
-import { buildAgent, buildReader, HerdDenied, HerdEscalated, toMirrorTxId } from "@herd/guard";
+import { buildAgent, buildReader, HerdDenied, HerdEscalated, safeError, toMirrorTxId } from "@herd/guard";
 
 const env = process.env;
 const url = (k: string, path = "/forecast") => {
@@ -75,7 +75,17 @@ async function flushAll() {
 
 async function standing(name: string) {
   const decl = await reader.ens.fetch(name);
-  const { view, rows } = await reader.read(decl!.payTo, Date.now() / 1000);
+  // A testnet read can time out. Only a read is retried here; no payment is involved.
+  let read;
+  for (let i = 0; !read; i++) {
+    try {
+      read = await reader.read(decl!.payTo, Date.now() / 1000);
+    } catch (e) {
+      if (i === 4) throw e;
+      console.log(`  registry read failed, retrying: ${safeError(e)}`);
+    }
+  }
+  const { view, rows } = read;
   const end = view.blockEnd ? `, ends in ${Math.round(view.blockEnd - Date.now() / 1000)} s` : "";
   console.log(`  ${name}: ${view.standing}, strikes ${view.strikes}, valid reports ${rows.reports.filter((r) => r.valid).length}, rebuttal used ${view.rebuttalUsed}${end}`);
   return view;
@@ -138,10 +148,12 @@ const scenes: Record<string, () => Promise<void>> = {
     log("Scene 5: block expires on its own, then probation");
     await waitFor(LEMON(), "PROBATION");
     const a = agent("A");
-    const probe = await fetch(url("LEMON", "/premium"));
-    const reqs = JSON.parse(Buffer.from(probe.headers.get("payment-required")!, "base64").toString()).accepts[0];
-    const d = await a.guard.check({ url: url("LEMON", "/premium"), requirements: reqs });
-    console.log(`  0.03 USD dry run: ${d.verdict} R ${d.score.toFixed(1)} ${d.reasons.join(",")}`);
+    for (const [path, label] of [["/hourly", "0.005"], ["/premium", "0.03"]] as const) {
+      const probe = await fetch(url("LEMON", path));
+      const reqs = JSON.parse(Buffer.from(probe.headers.get("payment-required")!, "base64").toString()).accepts[0];
+      const d = await a.guard.check({ url: url("LEMON", path), requirements: reqs });
+      console.log(`  ${label} USD dry run: ${d.verdict} R ${d.score.toFixed(1)} ${d.reasons.join(",") || "no flags"}`);
+    }
   },
   async "5a"() {
     log("Scene 5a: rebuttal. No role is rejected; the role holder signs; the real probe still gets junk");
@@ -208,6 +220,8 @@ const scenes: Record<string, () => Promise<void>> = {
       if (waited.status === "approved") {
         const paid = await call("herd_pay_request", { url: target, maxUsd: 0.05 });
         console.log("  herd_pay_request:", JSON.stringify({ status: paid.status, txId: paid.txId, delivered: paid.delivered, untrusted: paid.untrusted }));
+        const again = await call("herd_pay_request", { url: target, maxUsd: 0.05 });
+        console.log("  same challenge again:", JSON.stringify({ status: again.status, reasons: again.reasons }));
       }
     }
     console.log("  budget:", JSON.stringify(await call("herd_get_budget", {})));
@@ -224,11 +238,18 @@ for (const k of ["WEATHER", "LEMON", "SPOOF", "ROGUE"]) {
   }
 }
 
+// The filmed order. Scene 4 stays runnable alone: scene 8 covers it through MCP.
+const DEMO_ORDER = ["1", "2", "3", "8", "5a", "5", "6", "7"];
 const which = process.argv[2] ?? "all";
-for (const key of which === "all" ? Object.keys(scenes) : which.split(",")) {
+for (const key of which === "all" ? DEMO_ORDER : which.split(",")) {
   const s = scenes[key];
   if (!s) throw new Error(`no scene ${key}`);
-  await s();
+  const started = Date.now();
+  await s().catch((e) => {
+    console.error(`scene ${key} failed: ${safeError(e)}`); // never the raw error: it quotes the RPC url and key
+    process.exit(1);
+  });
+  console.log(`  [scene ${key}: ${Math.round((Date.now() - started) / 1000)} s]`);
 }
 relay?.kill();
 process.exit(0);

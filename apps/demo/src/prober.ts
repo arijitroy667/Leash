@@ -4,7 +4,7 @@ import "dotenv/config";
 import { fileURLToPath } from "node:url";
 import { wrapFetchWithPayment } from "@x402/fetch";
 import { Transaction } from "@hiero-ledger/sdk";
-import { buildReader, deliveryCheck, digest, rawClient } from "@herd/guard";
+import { buildReader, deliveryCheck, digest, rawClient, safeError } from "@herd/guard";
 
 const env = process.env;
 const hex = (k: string) => (k.startsWith("0x") ? k : `0x${k}`) as `0x${string}`;
@@ -71,7 +71,7 @@ export async function watch(names: string[], intervalMs = 5000) {
         if (probationEntry) done.add(`p:${view.probationStart}`);
         if (blockedRebuttal || probationEntry) console.log(name, view.standing, JSON.stringify(await probeOnce(reader, name)));
       } catch (e) {
-        console.error(name, "probe error", String(e).slice(0, 200));
+        console.error(name, "probe error", safeError(e));
       }
     }
     await new Promise((r) => setTimeout(r, intervalMs));

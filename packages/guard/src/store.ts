@@ -25,6 +25,10 @@ export interface OutboxItem {
 }
 
 /** Durable local state. One file, shared by the guard, MCP server, dashboard and prober. */
+/** RPC urls can carry access keys, and error text quotes them. Use this for anything logged or displayed. */
+export const safeError = (e: unknown) =>
+  String((e as { shortMessage?: string })?.shortMessage ?? e).replace(/https?:\/\/\S+/g, "[url]").replace(/ark_live_\w+/g, "[key]").slice(0, 160);
+
 export class Store {
   readonly db: DatabaseSync;
 

@@ -1,21 +1,37 @@
 import { resolve } from "node:path";
 import { config } from "dotenv";
-import { buildReader, parseDeclaration, validName } from "@herd/guard";
-
-config({ path: resolve(process.cwd(), "../../.env"), quiet: true });
+import { buildReader, parseDeclaration, safeError, validName } from "@herd/guard";
 
 /** Public mode serves the read-only explorer: no database file, no keys, no approvals. */
 export const PUBLIC_MODE = process.env.HERD_PUBLIC === "1";
+if (!PUBLIC_MODE) config({ path: resolve(process.cwd(), "../../.env"), quiet: true });
 
 type Reader = ReturnType<typeof buildReader>;
-let cached: Reader | undefined;
+const cached = new Map<string, Reader>();
 
-export function reader(): Reader {
-  cached ??= buildReader({
-    ...process.env,
-    HERD_DB: PUBLIC_MODE ? ":memory:" : (process.env.HERD_DB ?? resolve(process.cwd(), "../../.herd/herd.sqlite")),
+/** Registries the explorer may show, as `namespace:profile`. Default: the configured one. */
+export function namespaces(): { ns: string; profile: string }[] {
+  const list = (process.env.HERD_PUBLIC_NAMESPACES ?? "").split(",").filter(Boolean).map((p) => {
+    const [ns, profile] = p.split(":");
+    return { ns: ns!, profile: profile === "live" ? "live" : "production" };
   });
-  return cached;
+  return list.length ? list : [{ ns: process.env.HERD_NAMESPACE ?? "dev", profile: process.env.HERD_POLICY_PROFILE ?? "production" }];
+}
+
+/** An unlisted namespace falls back to the default, so a query string cannot pick a profile. */
+export function reader(ns?: string): Reader {
+  const chosen = namespaces().find((n) => n.ns === ns) ?? namespaces()[0]!;
+  let r = cached.get(chosen.ns);
+  if (!r) {
+    r = buildReader({
+      ...process.env,
+      HERD_NAMESPACE: chosen.ns,
+      HERD_POLICY_PROFILE: chosen.profile,
+      HERD_DB: PUBLIC_MODE ? ":memory:" : (process.env.HERD_DB ?? resolve(process.cwd(), "../../.herd/herd.sqlite")),
+    });
+    cached.set(chosen.ns, r);
+  }
+  return r;
 }
 
 export const ACCOUNT_ID = /^0\.0\.\d+$/;
@@ -42,8 +58,7 @@ export interface MerchantRow {
   error?: string;
 }
 
-export async function merchantRow(key: string, payToHint?: string): Promise<MerchantRow> {
-  const r = reader();
+export async function merchantRow(key: string, payToHint?: string, r: Reader = reader()): Promise<MerchantRow> {
   const now = Date.now() / 1000;
   const name = validName(key) ? key : null;
   const base: MerchantRow = { key, name, payTo: payToHint ?? (name ? null : key), declaration: null, standing: "UNKNOWN", view: null, reports: [], probes: [], rebuttals: [] };
@@ -64,7 +79,7 @@ export async function merchantRow(key: string, payToHint?: string): Promise<Merc
     base.probes = v.rows.probes.map((x) => ({ result: x.result, txId: x.txId, consensusTs: x.consensusTs }));
     base.rebuttals = v.rows.rebuttals.map((x) => ({ reason: /^[a-z-]{1,32}$/.test(x.reason) ? x.reason : "invalid", filedAt: x.filedAt, signer: x.signer }));
   } catch (e) {
-    base.error = String(e).slice(0, 160);
+    base.error = safeError(e);
   }
   return base;
 }

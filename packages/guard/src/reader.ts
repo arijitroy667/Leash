@@ -21,7 +21,9 @@ export function buildReader(env: NodeJS.ProcessEnv = process.env) {
   const arkiv = new Arkiv(env.ARKIV_ACCESS_KEY ?? "", ns, env.ARKIV_RPC_URL);
   const ens = new Ens(env.SEPOLIA_RPC_URL, store, params);
   const client = createPublicClient({ chain: sepolia, transport: http(env.SEPOLIA_RPC_URL) }) as PublicClient;
-  const proberOwners = new Set(env.PROBER_KEY ? [privateKeyToAccount(hex(env.PROBER_KEY)).address.toLowerCase()] : []);
+  // The public explorer holds no keys, so it takes the prober's address instead.
+  const prober = env.PROBER_KEY ? privateKeyToAccount(hex(env.PROBER_KEY)).address : env.PROBER_ADDRESS;
+  const proberOwners = new Set(prober ? [prober.toLowerCase()] : []);
   const read = async (payee: string, now: number) => {
     const v = await readVerifiedEvidence({
       arkiv, mirror, ns, payee, usdc, publicFunders: new Set(PUBLIC_FUNDERS), proberOwners,

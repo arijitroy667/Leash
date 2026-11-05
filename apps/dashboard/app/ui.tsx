@@ -51,6 +51,7 @@ export function MerchantCard({ m, now }: { m: any; now: number }) {
         {!m.declaration && <Stat k="ENS" v="No declaration" />}
         {v?.blockEnd && <Stat k="Block ends in" v={<strong>{secondsLeft(v.blockEnd, now)}</strong>} />}
         {v?.holdUntil && <Stat k="Hold ends in" v={<strong>{secondsLeft(v.holdUntil, now)}</strong>} />}
+        {v?.standing === "PROBATION" && v.probationStart && <Stat k="In probation for" v={secondsLeft(now, v.probationStart)} />}
         {v && <Stat k="Strikes" v={v.strikes} />}
         {v && <Stat k="Evidence" v={`b ${v.b.toFixed(2)} · L ${usd(v.L)} · g ${v.g.toFixed(2)} · D ${usd(v.D)}`} />}
         {v && <Stat k="Clusters" v={`${v.badClusters} bad · ${v.goodClusters} good`} />}
