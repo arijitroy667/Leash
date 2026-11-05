@@ -55,7 +55,13 @@ export class Mirror {
     if (cached) return cached;
     const body = await this.get(`/transactions/${toMirrorTxId(txId)}`);
     const list: any[] = body?.transactions ?? [];
-    if (!list.length) return { found: false, success: false };
+    if (!list.length) {
+      // A transaction reaches consensus within 3 minutes of the valid start in its id, so one still unknown 10 minutes
+      // on never happened. Cached, so a flood of made-up ids costs one lookup each rather than one on every read.
+      const validStart = Number(txId.split("@")[1]?.split(".")[0]);
+      if (validStart < Date.now() / 1000 - 600) this.store.txPut(txId, { found: false, success: false });
+      return { found: false, success: false };
+    }
     const ok = list.find((t) => t.result === "SUCCESS");
     if (!ok) {
       const facts = { found: true, success: false };

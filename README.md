@@ -227,6 +227,8 @@ npx tsx apps/demo/src/show.ts all          # the demo scenes, in the filmed orde
 
 `npx tsx apps/demo/src/latency.ts` measures the latency the guard adds, cold and warm, on the real networks. It makes dry runs only, so nothing is paid or written. CI runs the tests on Linux, macOS and Windows with Node 22.13.0 and 24.
 
+`apps/demo/src/failures.ts` causes failure modes F1 to F15 for real and checks each one, in three parts: `local`, `lemon` and `weather`. Run it as `LEASH_NAMESPACE=rehearsal-<name> npx tsx apps/demo/src/failures.ts <part>`, and give `lemon` `LEASH_LIVE_BLOCK_SEC=120,240,600` so its checks fit inside the blocks. It makes real payments and writes test evidence, so it refuses any namespace that is not `rehearsal-*`. The faults it cannot get from a public merchant come from real servers it starts on this machine: a facilitator that fails to settle, a merchant at a blocked payTo with no ENS name, a 402 made of instructions, and relays it really cuts.
+
 The prober also runs alone with `npx tsx apps/demo/src/prober.ts`. Leave it off during the show: scene 5a runs its own probe, and an extra probe on entering probation would fail on lemon and start a hold early, which is correct behaviour but out of order for the demo.
 
 For scene 7, start the show with `SHOW_RELAY=1 ARKIV_RPC_URL=http://127.0.0.1:8765` so Arkiv traffic passes through the relay it cuts.
@@ -307,6 +309,8 @@ The PRD asks for any rule it does not contain to be recorded here, with a reason
 | `leash_pay_request` also returns `no_payment` and `unconfirmed` | "Paid" must mean paid. A page that asks for no payment, or a merchant that failed after payment, returns no body, because the PRD allows a body only on a successfully paid call |
 | Any evidence the reader cannot check escalates as `unverified-reports`, not only two or more unverified bad clusters | NFR-03. One bad report on a NEW merchant escalates with full information (S4), so ignoring it during a Mirror outage would be a false ALLOW. It still never denies |
 | New DENY reason `malformed-challenge`: a payTo that is not a plain account id, or an amount that is not a whole number | NFR-05: text from a 402 never reaches a result, card or log. A checksum or alias payTo would also make every report against it unverifiable, since Mirror Node names the numeric id |
+| The reader takes the latest 200 reports that verify, reading past rows that do not, up to 1,000 rows. Past that the read is incomplete, so the guard escalates. Future-dated rows are not fetched | F15. Anyone can write rows, so a flood newer than the real reports would hide them. Shown live: under a 210-row flood, the newest 200 rows held none of a twice-blocked merchant's 8 real rows |
+| A probe counts only if an allow-listed prober created it (Arkiv `$creator`), not merely owns it | F13. An entity's owner can hand it to any address, so a merchant's side could pass off a forged passing probe as the prober's. Checked on live rows: a forged "pass" probe backed by a real payment, handed to the prober's address, passes an owner check and fails the creator check |
 | New ESCALATE reason `settlement-unknown` | Section 12 says an unknown settlement outcome escalates, but names no code |
 | New DENY reason `locally-blocked` | "Reject and block locally" needs a reason, and the PRD gives none |
 | An amount above `leash.maxPrice` on a stale declaration escalates, as `declared-stale-mismatch` | A stale record may be out of date, and section 12 says a stale declaration never denies |

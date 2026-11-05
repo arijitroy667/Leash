@@ -66,6 +66,7 @@ function setup(opts: { req?: ReturnType<typeof declared>; deliver?: () => Respon
     badByPayer: vi.spyOn(guard.arkiv, "badReportsByPayer").mockResolvedValue([]),
     arkivHealth: vi.spyOn(guard.arkiv, "health").mockResolvedValue(true),
     write: vi.spyOn(guard.arkiv, "writeReport").mockResolvedValue({ entityKey: "0xe", txHash: "0xt" } as never),
+    filed: vi.spyOn(guard.arkiv, "hasReport").mockResolvedValue(false),
     mirrorTx: vi.spyOn(guard.mirror, "tx").mockResolvedValue({ found: false, success: false }),
     mirrorAccount: vi.spyOn(guard.mirror, "account").mockResolvedValue({ keyType: "ECDSA_SECP256K1", key: "00", createdTs: 0, funder: "0.0.2" }),
     mirrorHealth: vi.spyOn(guard.mirror, "health").mockResolvedValue(true),
@@ -118,6 +119,18 @@ describe("FR-01 and FR-07: a paid call is gated, checked and reported", () => {
     advance(60);
     await t.guard.flush();
     expect(t.spies.write).toHaveBeenCalledTimes(1); // NFR-08: one registry write per paid call
+  });
+
+  it("NFR-08: a report this wallet already filed is never written again, whatever the outbox thinks", async () => {
+    const t = setup();
+    await t.pay();
+    t.spies.mirrorTx.mockResolvedValue({ found: true, success: true, payer: "0.0.200", payee: PAYEE, token: USDC, amountAtomic: 5000, consensusTs: 1_800_000_000 });
+    t.spies.filed.mockResolvedValue(true); // a delivery that outlived its claim, or a crash after writing
+    advance(1);
+    await t.guard.flush();
+    expect(t.spies.write).not.toHaveBeenCalled();
+    expect(t.spies.filed).toHaveBeenCalledWith(expect.stringMatching(/^0\.0\.\d+@/), t.guard.arkivOwner);
+    expect(t.guard.store.outboxDepth().depth).toBe(0);
   });
 
   it("NFR-07: each decision is one structured log line and one stored row, with factors, latency and degraded", async () => {

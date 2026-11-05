@@ -188,9 +188,12 @@ export class Store {
     const rows = this.db.prepare("SELECT id, kind, payload, attempts FROM outbox WHERE done=0 AND next_at<=? AND (kind='hcs' OR json_extract(payload, '$.agent')=?) ORDER BY id LIMIT ?").all(now, agent, limit) as any[];
     return rows.map((r) => ({ ...r, payload: JSON.parse(r.payload) }));
   }
-  /** Atomic across guards and processes, so an item is never delivered twice at once. */
+  /**
+   * Atomic across guards and processes, so an item is never delivered twice at once. The claim lasts 2 minutes, longer
+   * than a slow write with its retries; the report writer also checks Arkiv first, so even a lapsed claim files once.
+   */
   claimOutbox(id: number, now: number): boolean {
-    return Number(this.db.prepare("UPDATE outbox SET next_at=? WHERE id=? AND done=0 AND next_at<=?").run(now + 30, id, now).changes) === 1;
+    return Number(this.db.prepare("UPDATE outbox SET next_at=? WHERE id=? AND done=0 AND next_at<=?").run(now + 120, id, now).changes) === 1;
   }
   outboxDone(id: number) {
     this.db.prepare("UPDATE outbox SET done=1 WHERE id=?").run(id);

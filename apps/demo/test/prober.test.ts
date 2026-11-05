@@ -13,14 +13,17 @@ describe("which probe is due", () => {
   const blocked = view({ standing: "BLOCKED", blockStart: 100, blockEnd: 160 });
 
   it("none for a merchant in good standing", () => {
-    expect(probeDue(view({}), 150, new Set(), 200, DAY)).toBeNull();
-    expect(probeDue(view({ standing: "ESTABLISHED" }), 150, new Set(), 200, DAY)).toBeNull();
+    expect(probeDue(view({}), [150], new Set(), 200, DAY)).toBeNull();
+    expect(probeDue(view({ standing: "ESTABLISHED" }), [150], new Set(), 200, DAY)).toBeNull();
   });
   it("during a block, only for a rebuttal filed in this block, and only once", () => {
-    expect(probeDue(blocked, undefined, new Set(), 120, DAY)).toBeNull();
-    expect(probeDue(blocked, 50, new Set(), 120, DAY)).toBeNull(); // filed in an earlier block
-    expect(probeDue(blocked, 110, new Set(), 120, DAY)).toBe("r:110");
-    expect(probeDue(blocked, 110, new Set(["r:110"]), 120, DAY)).toBeNull();
+    expect(probeDue(blocked, [], new Set(), 120, DAY)).toBeNull();
+    expect(probeDue(blocked, [50], new Set(), 120, DAY)).toBeNull(); // filed in an earlier block
+    expect(probeDue(blocked, [110, 50], new Set(), 120, DAY)).toBe("r:110");
+    expect(probeDue(blocked, [110], new Set(["r:110"]), 120, DAY)).toBeNull();
+  });
+  it("F13: a second rebuttal in the same block buys no second probe", () => {
+    expect(probeDue(blocked, [130, 110], new Set(["r:110"]), 140, DAY)).toBeNull();
   });
   afterEach(() => vi.unstubAllEnvs());
   it("NFR-08: spends at most 0.50 USD a day, and stops before any network call", async () => {
@@ -35,10 +38,10 @@ describe("which probe is due", () => {
   it("during probation, one each policy day", () => {
     const probation = view({ standing: "PROBATION", probationStart: 200, strikes: 1 });
     const done = new Set<string>();
-    const first = probeDue(probation, undefined, done, 201, DAY);
+    const first = probeDue(probation, [], done, 201, DAY);
     expect(first).toBe("p:200:0");
     done.add(first!);
-    expect(probeDue(probation, undefined, done, 217, DAY)).toBeNull();
-    expect(probeDue(probation, undefined, done, 218, DAY)).toBe("p:200:1");
+    expect(probeDue(probation, [], done, 217, DAY)).toBeNull();
+    expect(probeDue(probation, [], done, 218, DAY)).toBe("p:200:1");
   });
 });

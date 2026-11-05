@@ -48,18 +48,32 @@ export async function probeOnce(reader: ReturnType<typeof buildReader>, ens: str
   }
   if (!facts.success) return { skipped: "not-settled" as const, txId };
   const result = check.ok ? ("pass" as const) : ("fail" as const);
-  const { entityKey } = await reader.arkiv.writeProbe(hex(key), {
-    payee: decl.payTo, result, txId, consensusTs: facts.consensusTs!, amountMicroUsd: amount, deliveryDigest: digest(body),
-  }, reader.params.reportTtlSec);
+  // The probe is paid for, so a refused write must not lose it: Arkiv can fail one transaction and take the next.
+  let written;
+  for (let i = 0; !written; i++) {
+    try {
+      written = await reader.arkiv.writeProbe(hex(key), {
+        payee: decl.payTo, result, txId, consensusTs: facts.consensusTs!, amountMicroUsd: amount, deliveryDigest: digest(body),
+      }, reader.params.reportTtlSec);
+    } catch (e) {
+      if (i === 2) throw e;
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  }
+  const { entityKey } = written;
   reader.audit("probe", txId, { payee: decl.payTo, result, txId, entityKey, at: facts.consensusTs });
   await reader.flushAudit();
   return { result, txId, entityKey };
 }
 
-/** The probe that is due, if any: one for a rebuttal filed during this block, and one a policy day during probation. */
-export function probeDue(view: StandingView, latestRebuttalAt: number | undefined, done: Set<string>, now: number, policyDaySec: number): string | null {
+/**
+ * The probe that is due, if any: one for the first rebuttal filed during this block, and one a policy day during
+ * probation. Only a block's first rebuttal counts, so only it buys a probe: more rebuttals cannot drain the budget.
+ */
+export function probeDue(view: StandingView, rebuttalTimes: number[], done: Set<string>, now: number, policyDaySec: number): string | null {
   let key: string | null = null;
-  if (view.standing === "BLOCKED" && latestRebuttalAt !== undefined && latestRebuttalAt >= (view.blockStart ?? 0)) key = `r:${latestRebuttalAt}`;
+  const first = Math.min(...rebuttalTimes.filter((t) => t >= (view.blockStart ?? 0)));
+  if (view.standing === "BLOCKED" && Number.isFinite(first)) key = `r:${first}`;
   if (view.standing === "PROBATION" && view.probationStart !== null) key = `p:${view.probationStart}:${Math.floor((now - view.probationStart) / policyDaySec)}`;
   return key && !done.has(key) ? key : null;
 }
@@ -74,7 +88,7 @@ export async function watch(names: string[], intervalMs = 5000) {
         if (!decl) continue;
         const now = Date.now() / 1000;
         const { view, rows } = await reader.read(decl.payTo, now);
-        const due = probeDue(view, rows.rebuttals[0]?.filedAt, done, now, reader.params.policyDaySec);
+        const due = probeDue(view, rows.rebuttals.map((r) => r.filedAt), done, now, reader.params.policyDaySec);
         if (due) {
           done.add(due);
           console.log(name, view.standing, JSON.stringify(await probeOnce(reader, name)));

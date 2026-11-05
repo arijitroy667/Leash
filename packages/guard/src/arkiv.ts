@@ -1,6 +1,6 @@
 import { createPublicClient, createWalletClient, ExpirationTime } from "@arkiv-network/sdk";
 import { rabdi } from "@arkiv-network/sdk/chains";
-import { and, desc, eq } from "@arkiv-network/sdk/query";
+import { and, desc, eq, lte } from "@arkiv-network/sdk/query";
 import { bytes, defineSchema, i32, str, u64 } from "@arkiv-network/sdk/schema";
 import { hexToBytes, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
@@ -46,7 +46,8 @@ export const ProbeSchema = defineSchema("leash.probe", {
 
 export const REPORT_VERSION = 1;
 export const READER_CAP = 200;
-const PAGE = 100;
+export const ARKIV_PAGE = 100;
+const PAGE = ARKIV_PAGE;
 
 export interface ReportRow {
   owner: string;
@@ -101,17 +102,15 @@ export class Arkiv {
     return createWalletClient({ chain: rabdi({ accessKey: this.accessKey }), transport: http(this.rpcUrl), account: privateKeyToAccount(privateKey) });
   }
 
-  async reports(payee: string): Promise<ReportRow[]> {
-    // The node serves at most 100 rows a page, so the 200-report reader cap takes two pages.
-    const entities: any[] = [];
-    for (let offset = 0; offset < READER_CAP; offset += PAGE) {
-      const page = await this.pub.select().from(ReportSchema)
-        .where(and(eq("ns", this.ns), eq("payee", payee)))
-        .orderBy(desc("consensusTs")).limit(PAGE).offset(offset).fetch();
-      entities.push(...page.entities);
-      if (page.entities.length < PAGE) break;
-    }
-    return entities.map(toReport);
+  /**
+   * One page of reports, newest first. The reader keeps paging past rows that fail verification, so a flood cannot
+   * push the real reports out of view. Future-dated rows are never fetched: no honest report can be one.
+   */
+  async reports(payee: string, offset = 0): Promise<ReportRow[]> {
+    const page = await this.pub.select().from(ReportSchema)
+      .where(and(eq("ns", this.ns), eq("payee", payee), lte("consensusTs", u64(BigInt(Math.floor(Date.now() / 1000))))))
+      .orderBy(desc("consensusTs")).limit(PAGE).offset(offset).fetch();
+    return page.entities.map(toReport);
   }
 
   /** One reporter's latest bad reports across all payees, for the G5 daily limit. */
@@ -122,6 +121,13 @@ export class Arkiv {
     return res.entities.map(toReport);
   }
 
+  /** Whether this writer already filed a report for this payment, so a retried delivery never writes it twice (NFR-08). */
+  async hasReport(txId: string, creator: string): Promise<boolean> {
+    const res = await this.pub.select().from(ReportSchema)
+      .where(and(eq("ns", this.ns), eq("txId", txId))).createdBy(creator as `0x${string}`).limit(1).fetch();
+    return res.entities.length > 0;
+  }
+
   /** Reports naming an origin. Its signature does not cover the domain, so ENS has the last word: payeesForDomain. */
   async reportsByDomain(origin: string): Promise<ReportRow[]> {
     const res = await this.pub.select().from(ReportSchema)
@@ -130,12 +136,16 @@ export class Arkiv {
     return res.entities.map(toReport);
   }
 
-  async probes(payee: string): Promise<ProbeRow[]> {
-    const res = await this.pub.select().from(ProbeSchema)
-      .where(and(eq("ns", this.ns), eq("payee", payee)))
-      .orderBy(desc("consensusTs")).limit(PAGE).fetch();
-    return res.entities.map((r: any) => ({
-      owner: r.$owner, payee: txt(r.payee), result: txt(r.result) as "pass" | "fail", txId: txt(r.txId),
+  /**
+   * Probes written by the allow-listed probers. By creator, never by owner: an owner can hand any entity to the
+   * prober's address, so a passing probe forged by the merchant's side would let a blocked merchant out early.
+   */
+  async probes(payee: string, creators: string[]): Promise<ProbeRow[]> {
+    const pages = await Promise.all(creators.map((creator) => this.pub.select().from(ProbeSchema)
+      .where(and(eq("ns", this.ns), eq("payee", payee))).createdBy(creator as `0x${string}`)
+      .orderBy(desc("consensusTs")).limit(PAGE).fetch()));
+    return pages.flatMap((p) => p.entities).map((r: any) => ({
+      owner: String(r.$creator), payee: txt(r.payee), result: txt(r.result) as "pass" | "fail", txId: txt(r.txId),
       consensusTs: num(r.consensusTs), amountMicroUsd: num(r.amountMicroUsd),
     }));
   }

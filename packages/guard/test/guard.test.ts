@@ -109,9 +109,19 @@ describe("Mirror verdict cache", () => {
     const f = vi.fn(async () => new Response("{}", { status: 404 }));
     vi.stubGlobal("fetch", f);
     const m = new Mirror("https://m.test", "0.0.1", new Store(":memory:"));
-    expect(await m.tx("0.0.9@1.1")).toEqual({ found: false, success: false });
-    await m.tx("0.0.9@1.1");
+    const recent = `0.0.9@${Math.floor(Date.now() / 1000) - 5}.000000001`;
+    expect(await m.tx(recent)).toEqual({ found: false, success: false });
+    await m.tx(recent);
     expect(f).toHaveBeenCalledTimes(2);
+  });
+  it("F15: a made-up transaction id older than ten minutes is remembered as never having happened", async () => {
+    const f = vi.fn(async () => new Response("{}", { status: 404 }));
+    vi.stubGlobal("fetch", f);
+    const m = new Mirror("https://m.test", "0.0.1", new Store(":memory:"));
+    const old = `0.0.9@${Math.floor(Date.now() / 1000) - 3600}.000000001`;
+    await m.tx(old);
+    await m.tx(old);
+    expect(f).toHaveBeenCalledTimes(1);
   });
   it("a 400 is no such transaction, not an outage", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response('{"_status":{"messages":[{"message":"Invalid parameter"}]}}', { status: 400 })));

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { parseAbi, verifyMessage, keccak256, toBytes, type PublicClient } from "viem";
 import { normalize } from "viem/ens";
 import { REPORTER_BAD_PER_DAY, reporterExcess, type Evidence, type Report } from "@leash/core";
-import type { Arkiv, ProbeRow, RebuttalRow, ReportRow } from "./arkiv.ts";
+import { ARKIV_PAGE, READER_CAP, type Arkiv, type ProbeRow, type RebuttalRow, type ReportRow } from "./arkiv.ts";
 import { validAccount, validName, type Ens } from "./ens.ts";
 import { verifyHederaSignature, type Mirror, type TxFacts } from "./mirror.ts";
 
@@ -47,6 +47,9 @@ export const digest = (s: string) => createHash("sha256").update(s).digest("hex"
 
 type Account = NonNullable<Awaited<ReturnType<Mirror["account"]>>>;
 type Checked = { why: string; mirrorDown?: boolean } | { facts: TxFacts; acct: Account };
+
+/** Rows read past ones that fail verification before a read gives up and calls itself incomplete (F15). */
+export const READER_SCAN_LIMIT = 1000;
 
 /** A Hedera transaction id as the SDK writes it. Anything else is junk, and never costs a Mirror call. */
 const TX_ID = /^0\.0\.\d{1,12}@\d{1,12}\.\d{1,9}$/;
@@ -95,16 +98,33 @@ export async function readVerifiedEvidence(opts: {
   verifyRebuttal: (r: RebuttalRow) => Promise<boolean>;
 }): Promise<VerifiedEvidence> {
   const { arkiv, mirror, ns, payee, usdc } = opts;
-  const [rawReports, rawProbes, rawRebuttals] = await Promise.all([arkiv.reports(payee), arkiv.probes(payee), arkiv.rebuttals(payee)]);
-
   let reports: Report[] = [];
   let incomplete = false;
   const rows: VerifiedEvidence["rows"] = { reports: [], probes: [], rebuttals: [] };
 
+  /**
+   * The latest 200 reports that verify, not the latest 200 rows: anyone can write rows, so a flood newer than the real
+   * reports would otherwise hide them. Junk costs the reader time, never evidence; past the scan limit the read is
+   * incomplete, so the guard escalates rather than allows.
+   */
+  const rawReports: ReportRow[] = [];
+  const checks: Checked[] = [];
+  async function readReports() {
+    for (let offset = 0, valid = 0; ; offset += ARKIV_PAGE) {
+      const page = await arkiv.reports(payee, offset);
+      const checked = await inBatches(page, (r) => checkReport(r, mirror, ns, usdc));
+      rawReports.push(...page);
+      checks.push(...checked);
+      valid += checked.filter((c) => !("why" in c)).length;
+      if (page.length < ARKIV_PAGE || valid >= READER_CAP) return;
+      if (rawReports.length >= READER_SCAN_LIMIT) return void (incomplete = true);
+    }
+  }
+
   // All checks at once, in batches: a cold read would otherwise wait on Mirror once per row (NFR-01).
+  const [rawProbes, rawRebuttals] = await Promise.all([arkiv.probes(payee, [...opts.proberOwners]), arkiv.rebuttals(payee), readReports()]);
   const ours = rawProbes.filter((p) => opts.proberOwners.has(p.owner.toLowerCase()) && TX_ID.test(p.txId));
-  const [checks, probeFacts, rebuttalChecks] = await Promise.all([
-    inBatches(rawReports, (r) => checkReport(r, mirror, ns, usdc)),
+  const [probeFacts, rebuttalChecks] = await Promise.all([
     inBatches(ours, (p) => mirror.tx(p.txId).catch(() => null)),
     // A check that fails is not a rebuttal that fails: missing the first one could let a second one count.
     inBatches(rawRebuttals, (r) => opts.verifyRebuttal(r).catch(() => null)),
@@ -188,6 +208,7 @@ export const verifyRebuttalSignature = (ns: string, r: RebuttalRow) =>
  * Without the declaration check, anyone could use their own name to burn another merchant's one rebuttal.
  */
 export async function verifyRebuttalRow(r: RebuttalRow, ns: string, ens: Ens, client: PublicClient): Promise<boolean> {
+  if (!REBUTTAL_REASONS.includes(r.reason as never)) return false; // fixed reasons only (F13), whoever wrote the row
   if (!(await verifyRebuttalSignature(ns, r))) return false;
   if ((await ens.fetch(r.ens))?.payTo !== r.payee) return false;
   return holdsRebuttalRole(client, await client.getEnsResolver({ name: normalize(r.ens) }), r.signer as `0x${string}`);

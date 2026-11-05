@@ -314,6 +314,8 @@ export function createLeashGuard(cfg: GuardConfig) {
       }
       if (!facts.found) return item.attempts >= MAX_REPORT_ATTEMPTS ? "done" : "retry"; // settlement never landed
       if (!facts.success) return "done";
+      // Delivery is at-least-once: a write that outlived its claim, or a crash after writing, would otherwise file twice.
+      if (await arkiv.hasReport(p.txId, arkivOwner)) return "done";
       const message = reportMessage({ ns: cfg.namespace, txId: p.txId, payee: p.payee, outcome: p.outcome, amountMicroUsd: p.amountMicroUsd, owner: arkivOwner });
       const payerSig = Buffer.from(hederaKey.sign(Buffer.from(message))).toString("hex");
       const { entityKey } = await arkiv.writeReport(evmKey, {
