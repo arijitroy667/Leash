@@ -35,7 +35,7 @@ Written by allow-listed prober wallets after a real paid retest. Columns: `ns`, 
 
 | Entity | Production | Live profile |
 | --- | --- | --- |
-| All three | 60 days | 18 minutes |
+| All three | 60 days | 18 minutes by default: 60 policy days, or twice the total of the blocks if longer |
 
 Expiry is the forgiveness mechanism: when evidence expires, so do the strikes built on it, so no merchant is blocked forever. The PRD's 30-day rebuttal expiry is simplified to match reports, since a rebuttal only matters while a block it refers to is still in evidence.
 

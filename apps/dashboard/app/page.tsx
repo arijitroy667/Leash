@@ -10,8 +10,10 @@ async function connect(): Promise<`0x${string}`> {
   const [address] = await eth.request({ method: "eth_requestAccounts" });
   return address;
 }
+// Hex is the form every wallet accepts for personal_sign, and each still shows it as readable text.
+const toHex = (text: string) => `0x${[...new TextEncoder().encode(text)].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
 const sign = (message: string, address: string): Promise<`0x${string}`> =>
-  (window as any).ethereum.request({ method: "personal_sign", params: [message, address] });
+  (window as any).ethereum.request({ method: "personal_sign", params: [toHex(message), address] });
 
 function ApprovalCard({ a, now, owner, onDone }: { a: any; now: number; owner: string | null; onDone: () => void }) {
   const [busy, setBusy] = useState(false);
@@ -29,10 +31,9 @@ function ApprovalCard({ a, now, owner, onDone }: { a: any; now: number; owner: s
       const r = await fetch(`/api/approvals/${a.id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, signature }) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error);
-      onDone();
+      onDone(); // the buttons stay disabled until the next read removes this card, so it cannot be clicked twice
     } catch (e: any) {
       setError(e.message ?? String(e));
-    } finally {
       setBusy(false);
     }
   };
@@ -65,6 +66,7 @@ function RebuttalDesk({ merchants, onDone }: { merchants: any[]; onDone: () => v
   const named = merchants.filter((m) => m.name);
   const [ens, setEns] = useState("");
   const [reason, setReason] = useState(REASONS[1]!);
+  const [evidence, setEvidence] = useState("");
   const [msg, setMsg] = useState("");
   const name = ens || named[0]?.name || "";
   const m = named.find((x) => x.name === name);
@@ -73,11 +75,11 @@ function RebuttalDesk({ merchants, onDone }: { merchants: any[]; onDone: () => v
     try {
       const signer = await connect();
       const filedAt = Math.floor(Date.now() / 1000);
-      const q = await fetch(`/api/rebuttal?${new URLSearchParams({ ens: name, reason, filedAt: String(filedAt) })}`);
+      const q = await fetch(`/api/rebuttal?${new URLSearchParams({ ens: name, reason, filedAt: String(filedAt), evidence })}`);
       const { message, error } = await q.json();
       if (!q.ok) throw new Error(error);
       const signature = await sign(message, signer);
-      const r = await fetch("/api/rebuttal", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ens: name, reason, filedAt, signer, signature }) });
+      const r = await fetch("/api/rebuttal", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ens: name, reason, filedAt, signer, signature, evidence }) });
       const j = await r.json();
       if (!r.ok) throw new Error(j.error);
       setMsg("Filed. A probe will run next; the rebuttal alone never unblocks.");
@@ -93,6 +95,7 @@ function RebuttalDesk({ merchants, onDone }: { merchants: any[]; onDone: () => v
       <div className="row" style={{ justifyContent: "flex-start" }}>
         <label>Merchant <select value={name} onChange={(e) => setEns(e.target.value)}>{named.map((m) => <option key={m.name}>{m.name}</option>)}</select></label>
         <label>Reason <select value={reason} onChange={(e) => setReason(e.target.value)}>{REASONS.map((r) => <option key={r}>{r}</option>)}</select></label>
+        <label>Evidence URL or hash <input value={evidence} maxLength={500} onChange={(e) => setEvidence(e.target.value)} placeholder="optional, only its hash is stored" /></label>
         <button onClick={file} disabled={!name}>Sign and file</button>
       </div>
       {msg && <p role="status">{msg}</p>}
@@ -139,7 +142,7 @@ export default function Console() {
         <h1>Leash <span className="muted" style={{ fontWeight: 400 }}>owner console</span></h1>
         <span className="muted">namespace <code>{s.namespace}</code> · <a href="/explorer">public explorer</a></span>
       </div>
-      <ProfileBanner profile={s.profile} />
+      <ProfileBanner profile={s.profile} note={s.policyNote} />
       {s.safeMode && <div className="banner alert" role="alert">Safe mode: two critical dependencies are down, so every payment escalates. Cached blocks still deny.</div>}
       {error && <div className="banner alert" role="alert">{error}</div>}
 

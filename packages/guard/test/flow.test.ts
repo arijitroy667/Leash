@@ -8,6 +8,7 @@ import { PrivateKey } from "@hiero-ledger/sdk";
 import { wrapFetchWithPayment } from "@x402/fetch";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import type { StandingView } from "@leash/core";
+import { liveProfile } from "@leash/core";
 import { LeashDenied, LeashEscalated, approvalMessage, createLeashGuard, rawClient, type GuardConfig, type LeashGuard } from "../src/index.ts";
 
 const USDC = "0.0.429274";
@@ -30,7 +31,7 @@ const open: LeashGuard[] = [];
 
 function setup(opts: { req?: ReturnType<typeof declared>; deliver?: () => Response | Promise<Response>; cfg?: Partial<GuardConfig>; decl?: typeof decl | null } = {}) {
   const calls = { unpaid: 0, paid: 0 };
-  const state = { req: opts.req ?? declared(), deliver: opts.deliver ?? goodBody };
+  const state = { req: opts.req ?? declared(), deliver: opts.deliver ?? goodBody, beforeChallenge: () => {} };
   const stub = (async (input: RequestInfo | URL, init?: RequestInit) => {
     const r = new Request(input, init);
     if (r.headers.has("PAYMENT-SIGNATURE") || r.headers.has("X-PAYMENT")) {
@@ -38,6 +39,7 @@ function setup(opts: { req?: ReturnType<typeof declared>; deliver?: () => Respon
       return state.deliver();
     }
     calls.unpaid++;
+    state.beforeChallenge();
     const body = { x402Version: 2, error: "Payment required", resource: { url: r.url, description: "d", mimeType: "" }, accepts: [state.req] };
     return new Response(JSON.stringify({ error: "Payment required" }), {
       status: 402,
@@ -52,7 +54,8 @@ function setup(opts: { req?: ReturnType<typeof declared>; deliver?: () => Respon
   open.push(guard);
   const client = rawClient("0.0.200", key);
   guard.attach(client as never);
-  const paidFetch = guard.guardedFetch(wrapFetchWithPayment(stub, client));
+  const rawFetch = wrapFetchWithPayment(stub, client);
+  const paidFetch = guard.guardedFetch(rawFetch);
 
   const spies = {
     ens: vi.spyOn(guard.ens, "fetch").mockImplementation(async () => (opts.decl === undefined ? decl : opts.decl)),
@@ -69,9 +72,9 @@ function setup(opts: { req?: ReturnType<typeof declared>; deliver?: () => Respon
   };
 
   /** One call, reduced to what happened. */
-  const pay = async () => {
+  const pay = async (init?: RequestInit & { leashIdempotent?: boolean }) => {
     try {
-      const res = await paidFetch(URL_);
+      const res = await paidFetch(URL_, init);
       return { verdict: "ALLOW" as const, reasons: [] as string[], res, leash: (res as any).leash };
     } catch (e) {
       if (e instanceof LeashDenied) return { verdict: "DENY" as const, reasons: e.decision.reasons as string[], decision: e.decision };
@@ -83,7 +86,7 @@ function setup(opts: { req?: ReturnType<typeof declared>; deliver?: () => Respon
     const a = guard.store.getApproval(id)!;
     return guard.store.resolveApproval(id, "approved", await by.signMessage({ message: approvalMessage(a) }));
   };
-  return { guard, spies, calls, state, pay, sign };
+  return { guard, spies, calls, state, pay, sign, rawFetch };
 }
 
 beforeEach(() => {
@@ -140,8 +143,58 @@ describe("FR-01 and FR-07: a paid call is gated, checked and reported", () => {
     expect(t.guard.store.recentDecisions(1)[0]).toMatchObject({ verdict: "DENY", reasons: ["declared-mismatch"] });
   });
 
+  it("a call that skips guardedFetch has no known origin, so it never pays by itself", async () => {
+    const t = setup();
+    await expect(t.rawFetch(URL_)).rejects.toThrow(/leash:ESCALATE/);
+    expect(t.calls.paid).toBe(0);
+    expect(t.guard.store.recentDecisions(1)[0]!.reasons).toContain("unknown-origin");
+  });
+
+  it("a raw call the owner approved still counts for replay and spend", async () => {
+    const t = setup();
+    await expect(t.rawFetch(URL_)).rejects.toThrow(/leash:ESCALATE/);
+    await t.sign(t.guard.store.listApprovals("pending")[0]!.id);
+    await t.rawFetch(URL_);
+    expect(t.calls.paid).toBe(1);
+    await expect(t.rawFetch(URL_)).rejects.toThrow(/leash:DENY:replay/);
+    expect(t.calls.paid).toBe(1);
+    expect(t.guard.store.budget("agent-t", t.guard.session, Date.now() / 1000).sessionSpent).toBeCloseTo(0.005);
+  });
+
+  it("autoReport off files nothing", async () => {
+    const t = setup({ cfg: { autoReport: false } });
+    await t.pay();
+    expect(t.guard.store.outboxDepth().depth).toBe(0);
+  });
+
+  it("FR-04: a repeat inside 120 seconds is DENY replay, after it pays again, and the flag allows a deliberate repeat", async () => {
+    const t = setup();
+    await t.pay();
+    const repeat = await t.pay();
+    expect(repeat.verdict).toBe("DENY");
+    expect(repeat.reasons).toContain("replay");
+    expect((await t.pay({ leashIdempotent: true })).verdict).toBe("ALLOW");
+    advance(121);
+    expect((await t.pay()).verdict).toBe("ALLOW");
+    expect(t.calls.paid).toBe(3);
+  });
+
+  it("FR-04: a challenge older than its maxTimeoutSeconds is refused", async () => {
+    const t = setup();
+    t.state.beforeChallenge = () => advance(61);
+    const r = await t.pay();
+    expect(r.verdict).toBe("DENY");
+    expect(r.reasons).toContain("stale-challenge");
+    expect(t.calls.paid).toBe(0);
+  });
+
+  it("FR-25: a tuned live clock reaches the guard, and it decides with it", async () => {
+    const t = setup({ cfg: { policy: liveProfile(10, [200]) } });
+    expect(t.guard.params).toMatchObject({ name: "live", policyDaySec: 10, blockSec: [200] });
+  });
+
   it("FR-05: a spoofed payTo, network, asset or origin never reaches a payment", async () => {
-    for (const over of [{ payTo: "0.0.999" }, { asset: "0.0.1" }]) {
+    for (const over of [{ payTo: "0.0.999" }, { asset: "0.0.1" }, { network: "hedera:mainnet" }]) {
       const t = setup({ req: declared(over) });
       const r = await t.pay();
       expect(r.verdict).toBe("DENY");
@@ -188,6 +241,18 @@ describe("FR-15: owner-signed, single-use approvals bound to the challenge", () 
     t.state.req = unclaimed();
     advance(121);
     expect((await t.pay()).verdict).toBe("ESCALATE");
+    expect(t.calls.paid).toBe(0);
+  });
+
+  it("an expired approval cannot be used, and a fresh card is made on request", async () => {
+    const t = setup({ req: unclaimed() });
+    const first = await t.pay();
+    advance(121);
+    const second = await t.pay();
+    expect(second.verdict).toBe("ESCALATE");
+    expect(second.approvalId).not.toBe(first.approvalId);
+    expect(t.guard.store.getApproval(first.approvalId!)?.status).toBe("expired");
+    expect(t.guard.store.getApproval(second.approvalId!)?.status).toBe("pending");
     expect(t.calls.paid).toBe(0);
   });
 
@@ -540,6 +605,12 @@ describe("FR-16 chaos matrix, PRD section 12", () => {
     expect(again.reasons).toContain("replay");
     expect(b.calls.paid).toBe(0);
     expect(b.guard.store.ledger("agent-t", b.guard.session, "m.eth", URL_, Date.now() / 1000).merchantSpent24h).toBeCloseTo(0.005);
+
+    // The outbox drains after a restart too.
+    b.spies.mirrorTx.mockResolvedValue({ found: true, success: true, payer: "0.0.200", payee: PAYEE, token: USDC, amountAtomic: 5000, consensusTs: 1_800_000_000 });
+    await b.guard.flush();
+    expect(b.spies.write).toHaveBeenCalledTimes(1);
+    expect(b.spies.write.mock.calls[0]![1]).toMatchObject({ outcome: "good", reason: "delivered" });
   });
 });
 

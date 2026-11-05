@@ -44,6 +44,8 @@ export interface GuardConfig {
   namespace: string;
   dbPath?: string;
   policyProfile?: keyof typeof PROFILES;
+  /** A tuned policy, such as liveProfile(18, [60, 120, 300]). Overrides policyProfile. */
+  policy?: PolicyParams;
   mirrorUrl?: string;
   sepoliaRpcUrl?: string;
   usdc?: string;
@@ -67,7 +69,7 @@ interface RequestCtx {
 }
 
 export function createLeashGuard(cfg: GuardConfig) {
-  const params: PolicyParams = PROFILES[cfg.policyProfile ?? "production"];
+  const params: PolicyParams = cfg.policy ?? PROFILES[cfg.policyProfile ?? "production"];
   const usdc = cfg.usdc ?? "0.0.429274";
   const limits: Limits = { ...DEFAULT_LIMITS, allowedAssets: [usdc], ...cfg.limits };
   const store = new Store(cfg.dbPath ?? ".leash/leash.sqlite");
@@ -223,7 +225,14 @@ export function createLeashGuard(cfg: GuardConfig) {
       const ctx = als.getStore();
       const req = hook.selectedRequirements;
       const d = ctx?.decision;
-      if (!ctx || !d) return;
+      if (!ctx || !d) {
+        // Outside guardedFetch, so there is no response to check or report on. The owner approved it, and it still counts.
+        const challenge = toChallenge(req, `unknown://${req.payTo}`);
+        const at = nowSec();
+        store.markPaid(cfg.agent, challengeHash(challenge), at);
+        store.recordSpend({ agent: cfg.agent, session, merchant: req.payTo, resource: normalizeUrl(challenge.resourceUrl), standing: "UNKNOWN", amount: challenge.amountUsd, at });
+        return;
+      }
       const tx = Transaction.fromBytes(Buffer.from(String(hook.paymentPayload.payload.transaction), "base64"));
       const at = nowSec();
       store.markPaid(cfg.agent, d.challengeHash, at);

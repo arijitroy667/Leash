@@ -18,11 +18,11 @@ export function secondsLeft(end: number, now: number) {
   return s >= 3600 ? `${(s / 3600).toFixed(1)}h` : s >= 120 ? `${Math.round(s / 60)}m ${s % 60}s` : `${s}s`;
 }
 
-export function ProfileBanner({ profile }: { profile: string }) {
+export function ProfileBanner({ profile, note }: { profile: string; note?: string }) {
   if (profile !== "live") return null;
   return (
     <div className="banner" role="status">
-      Live policy profile: 1 policy day = 18 real seconds. Every payment, entity and name on this page is real on public testnets.
+      Live policy profile: {note} Every payment, entity and name on this page is real on public testnets.
     </div>
   );
 }

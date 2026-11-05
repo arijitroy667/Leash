@@ -6,6 +6,7 @@ import "dotenv/config";
 import { spawn, type ChildProcess } from "node:child_process";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { policySummary } from "@leash/core";
 import { probeOnce } from "./prober.ts";
 import { buildAgent, buildReader, LeashDenied, LeashEscalated, safeError, toMirrorTxId } from "@leash/guard";
 
@@ -146,7 +147,7 @@ const scenes: Record<string, () => Promise<void>> = {
   },
   async 5() {
     log("Scene 5: block expires on its own, then probation");
-    await waitFor(LEMON(), "PROBATION");
+    await waitFor(LEMON(), "PROBATION", reader.params.blockSec[0]! * 1000 + 60_000);
     const a = agent("A");
     for (const [path, label] of [["/hourly", "0.005"], ["/premium", "0.03"]] as const) {
       const probe = await fetch(url("LEMON", path));
@@ -157,8 +158,16 @@ const scenes: Record<string, () => Promise<void>> = {
   },
   async "5a"() {
     log("Scene 5a: rebuttal. No role is rejected; the role holder signs; the real probe still gets junk");
+    // A probe during probation is evidence, so a block that ended too early must not get one by accident.
+    const stillBlocked = async () => {
+      if ((await standing(LEMON())).standing === "BLOCKED") return true;
+      console.log("  the block has ended, so this scene stops here. Raise the first value of LEASH_LIVE_BLOCK_SEC to fit it.");
+      return false;
+    };
+    if (!(await stillBlocked())) return;
     await run(["apps/demo/src/rebuttal.ts", "norole"]);
     await run(["apps/demo/src/rebuttal.ts", "role"]);
+    if (!(await stillBlocked())) return;
     console.log("  probe:", JSON.stringify(await probeOnce(reader, LEMON())));
     await standing(LEMON());
   },
@@ -238,8 +247,10 @@ for (const k of ["WEATHER", "LEMON", "SPOOF", "ROGUE"]) {
   }
 }
 
-// The filmed order. Scene 4 stays runnable alone: scene 8 covers it through MCP.
-const DEMO_ORDER = ["1", "2", "3", "8", "5a", "5", "6", "7"];
+// The filmed order. The rebuttal comes straight after the block starts, because it has to land while the block is on.
+// Scene 4 stays runnable alone: scene 8 covers it through MCP.
+const DEMO_ORDER = ["1", "2", "5a", "3", "8", "5", "6", "7"];
+console.log(`Policy: ${reader.params.name}. ${policySummary(reader.params)}`);
 const which = process.argv[2] ?? "all";
 for (const key of which === "all" ? DEMO_ORDER : which.split(",")) {
   const s = scenes[key];

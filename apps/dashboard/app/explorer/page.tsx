@@ -42,7 +42,7 @@ export default function Explorer() {
           </label>
         ) : data && <span className="muted">registry namespace <code>{data.namespace}</code></span>}
       </div>
-      {data && <ProfileBanner profile={data.profile} />}
+      {data && <ProfileBanner profile={data.profile} note={data.policyNote} />}
       <p className="muted">
         Live from ENSv2 on Sepolia, Arkiv and Hedera Mirror Node. Every report is re-verified here against its real payment before it counts. A report with no proof shows as ignored.
       </p>

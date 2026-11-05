@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import fc from "fast-check";
 import fixtures from "./fixtures.json" with { type: "json" };
 import {
-  DEFAULT_LIMITS, PROFILES, autoLimit, challengeHash, decide, replay, reporterExcess, riskScore,
+  DEFAULT_LIMITS, PROFILES, autoLimit, blockLength, challengeHash, decide, liveProfile, policySummary, replay, reporterExcess, riskScore,
   type Challenge, type Declaration, type DecideInput, type Evidence, type Report, type Standing, type StandingView,
 } from "../src/index.ts";
 
@@ -184,8 +184,8 @@ describe("standing replay", () => {
 
   it("live profile runs the scam loop in real seconds (section 19)", () => {
     const first = [report(0, "bad", "a"), report(5, "bad", "b")];
-    expect(replay(ev(first), 6, L).blockEnd).toBe(95);
-    expect(replay(ev(first), 95, L).standing).toBe("PROBATION");
+    expect(replay(ev(first), 6, L).blockEnd).toBe(65);
+    expect(replay(ev(first), 65, L).standing).toBe("PROBATION");
     // agent A again, 100 s after its first bad report: not rate limited in live
     const again = [...first, report(100, "bad", "a")];
     const held = replay(ev(again), 101, L);
@@ -193,14 +193,14 @@ describe("standing replay", () => {
     const blocked = replay(ev([...again, report(120, "bad", "b")]), 121, L);
     expect(blocked.standing).toBe("BLOCKED");
     expect(blocked.strikes).toBe(2);
-    expect(blocked.blockEnd).toBe(300);
+    expect(blocked.blockEnd).toBe(240);
   });
 });
 
 // FR-09: every transition in PRD section 10, in both policy profiles.
 describe.each([["production", P], ["live", L]] as const)("standing transitions, %s profile", (_name, p) => {
   const pair = [report(0, "bad", "a"), report(1, "bad", "b")];
-  const duration = (strike: number) => Math.min(p.blockBaseSec * 2 ** (strike - 1), p.blockMaxSec);
+  const duration = (strike: number) => blockLength(strike, p);
   const entry = 1 + duration(1);
   const goods = (at: number, amount = 0.1, names = ["x", "y", "z"]) => names.map((c, n) => report(at + n + 1, "good", c, amount));
 
@@ -248,7 +248,7 @@ describe.each([["production", P], ["live", L]] as const)("standing transitions, 
     expect(replay(ev(during), entry, p).goodClusters).toBe(0);
   });
 
-  it("strikes double the block, and it stops at the cap", () => {
+  it("each strike takes the next block length, and it stops at the last", () => {
     let reports = [...pair];
     let blockEnd = entry;
     for (const strike of [2, 3, 4]) {
@@ -260,7 +260,7 @@ describe.each([["production", P], ["live", L]] as const)("standing transitions, 
       blockEnd = blockAt + duration(strike);
     }
     expect(duration(4)).toBe(duration(3));
-    expect(p.blockMaxSec).toBe(duration(3));
+    expect(p.blockSec.at(-1)).toBe(duration(3));
   });
 
   it("PROBATION to hold on one bad cluster, and back when the hold ends", () => {
@@ -396,9 +396,71 @@ describe("G5: at most 5 bad reports a day from one reporter, across payees", () 
   });
 });
 
+describe("the configurable live clock", () => {
+  const pair = [report(0, "bad", "a"), report(1, "bad", "b")];
+
+  it("defaults to blocks of 1, 2 and 5 minutes, with the PRD's other live durations", () => {
+    expect(L).toMatchObject({ name: "live", policyDaySec: 18, blockSec: [60, 120, 300], holdSec: 54, rebuttalCooldownSec: 18, probationMinUnitSec: 54, strikeMemorySec: 1080, reportTtlSec: 1080, standingFreshSec: 5 });
+  });
+  it("leaves production at the PRD's 5, 10 and 20 days", () => {
+    expect(P.blockSec).toEqual([5 * DAY, 10 * DAY, 20 * DAY]);
+    expect(P).toMatchObject({ holdSec: 3 * DAY, rebuttalCooldownSec: DAY, strikeMemorySec: 60 * DAY, reportTtlSec: 60 * DAY });
+  });
+  it("uses the configured block at each strike, then the last one", () => {
+    const p = liveProfile(18, [70, 200]);
+    expect(replay(ev(pair), 2, p).blockEnd).toBe(71);
+    let reports = [...pair];
+    let end = 71;
+    for (const length of [200, 200]) {
+      reports = [...reports, report(end + 1, "bad", "a"), report(end + 2, "bad", "b")];
+      expect(replay(ev(reports), end + 3, p).blockEnd).toBe(end + 2 + length);
+      end = end + 2 + length;
+    }
+  });
+  it("the policy day sets the hold, cooldown, probation minimum and report window", () => {
+    expect(liveProfile(10, [60])).toMatchObject({ policyDaySec: 10, holdSec: 30, rebuttalCooldownSec: 10, probationMinUnitSec: 30, badPerPayeeWindowSec: 10, strikeMemorySec: 600, reportTtlSec: 600 });
+  });
+  it("evidence always outlives a chain of blocks, or a block would end when its reports expire", () => {
+    const p = liveProfile(5, [600, 1200, 1800]);
+    expect(p.reportTtlSec).toBe(7200);
+    expect(p.strikeMemorySec).toBe(7200);
+  });
+  it("does not shorten what the PRD says stays real", () => {
+    for (const p of [L, liveProfile(5, [30])]) {
+      expect(p).toMatchObject({ badHalfLifeSec: P.badHalfLifeSec, badWindowSec: P.badWindowSec, goodHalfLifeSec: P.goodHalfLifeSec, goodWindowSec: P.goodWindowSec, youngAccountSec: P.youngAccountSec, firstGoodAgeSec: P.firstGoodAgeSec });
+    }
+  });
+  it.each([
+    ["a zero day", 0, [60]],
+    ["a negative day", -1, [60]],
+    ["a day that is not a number", NaN, [60]],
+    ["no blocks", 18, []],
+    ["a zero block", 18, [60, 0]],
+    ["a block that is not a number", 18, [60, NaN]],
+    ["blocks that shrink", 18, [300, 60]],
+    ["a first block no longer than a day", 60, [60, 120]],
+  ] as const)("refuses %s", (_name, day, blocks) => {
+    expect(() => liveProfile(day, [...blocks])).toThrow(RangeError);
+  });
+  it("describes the values actually in use", () => {
+    expect(policySummary(L)).toBe("1 policy day = 18 real seconds. Blocks last 1 min, 2 min, then 5 min.");
+    expect(policySummary(liveProfile(10, [90]))).toBe("1 policy day = 10 real seconds. Blocks last 90 s.");
+  });
+});
+
 describe("decide", () => {
   const reason = (o: Partial<DecideInput>) => decide(input(o));
 
+  it("risk band: R of 70 or more denies with two bad clusters, and one cluster can only escalate", () => {
+    const risky = (badClusters: number) => viewOf({ standing: "NEW", b: 1, bScore: 1, L: 0.5, badClusters, computedAt: 1000 });
+    const two = reason({ challenge: challenge(0.05), registry: { status: "fresh", view: risky(2) } });
+    expect(two.score).toBeGreaterThanOrEqual(70);
+    expect(two.verdict).toBe("DENY");
+    expect(two.reasons).toContain("risk-band");
+    const one = reason({ challenge: challenge(0.05), registry: { status: "fresh", view: risky(1) } });
+    expect(one.score).toBeGreaterThanOrEqual(70);
+    expect(one.verdict).toBe("ESCALATE");
+  });
   it("a merchant moves from UNKNOWN to NEW by declaring in ENS", () => {
     expect(reason({ claim: null, declaration: { status: "none" } }).standing).toBe("UNKNOWN");
     expect(reason({}).standing).toBe("NEW");
@@ -565,23 +627,51 @@ describe("properties", () => {
       const view = replay(ev(rs), now, P);
       const d = decide(input({ now, challenge: challenge(A), registry: { status: "fresh", view }, challengeState: { receivedAt: now, paidAt: null } }));
       return view.standing !== "BLOCKED" && d.verdict !== "DENY";
-    }), { numRuns: 3000 });
-  });
+    }), n);
+  }, 300_000);
 
   it("any history followed by 60 quiet days is not BLOCKED", () => {
-    fc.assert(fc.property(reports(["a", "b", "c", "d"]), (rs) => replay(ev(rs), 30 * DAY + 60 * DAY, P).standing !== "BLOCKED"), { numRuns: 3000 });
-  });
+    fc.assert(fc.property(reports(["a", "b", "c", "d"]), (rs) => replay(ev(rs), 30 * DAY + 60 * DAY, P).standing !== "BLOCKED"), n);
+  }, 300_000);
 
   it("same evidence and now give the same standing, whatever the input order", () => {
     fc.assert(fc.property(reports(["a", "b", "c"]), fc.integer({ min: 0, max: 40 * DAY }), (rs, now) => {
       expect(replay(ev([...rs].reverse()), now, P)).toEqual(replay(ev(rs), now, P));
-    }), { numRuns: 2000 });
-  });
+    }), n);
+  }, 300_000);
 
   it("a latched block lasts its full duration", () => {
     fc.assert(fc.property(fc.integer({ min: 0, max: 5 * DAY - 2 }), (dt) => {
       const e = ev([report(0, "bad", "a"), report(1, "bad", "b")]);
       return replay(e, 1 + dt, P).standing === "BLOCKED";
-    }), { numRuns: 2000 });
-  });
+    }), n);
+  }, 300_000);
+
+  it("the verdict is the most restrictive gate, whatever combination fires", () => {
+    const DENY_ONLY = new Set(["ceiling-exceeded", "unsupported-asset", "declared-mismatch", "over-declared-max", "replay", "stale-challenge", "blocked", "merchant-cap-hard", "budget-exceeded", "escalation-rate-limit", "locally-blocked"]);
+    const gates = fc.record({
+      A: fc.double({ min: 0.001, max: 2, noNaN: true }),
+      spoof: fc.boolean(), badAsset: fc.boolean(), replayed: fc.boolean(), stale: fc.boolean(), noClaim: fc.boolean(), noOrigin: fc.boolean(), registryDown: fc.boolean(),
+      blocked: fc.boolean(), safeMode: fc.boolean(), unknownSettlement: fc.boolean(), localBlock: fc.boolean(), spent: fc.double({ min: 0, max: 3, noNaN: true }), escalations: fc.integer({ min: 0, max: 12 }), unverified: fc.integer({ min: 0, max: 3 }),
+    });
+    fc.assert(fc.property(gates, (g) => {
+      const view = viewOf({ standing: g.blocked ? "BLOCKED" : "NEW", blockEnd: g.blocked ? 5000 : null, computedAt: 1000 });
+      const i = input({
+        challenge: challenge(g.A, { payTo: g.spoof ? "0.0.999" : "0.0.100", asset: g.badAsset ? "0.0.1" : USDC }),
+        claim: g.noClaim ? null : "m.eth",
+        declaration: g.noClaim ? { status: "none" } : { status: "fresh", value: decl },
+        realOrigin: g.noOrigin ? null : "https://m.example",
+        registry: g.registryDown ? { status: "none" } : { status: "fresh", view },
+        ledger: { merchantSpent24h: g.spent, sessionSpent: g.spent, dailySpent: g.spent, newIdentitySpentToday: g.spent, recentPrices: [] },
+        challengeState: { receivedAt: g.stale ? 900 : 1000, paidAt: g.replayed ? 990 : null },
+        escalationsLastHour: g.escalations, unverifiedBadClusters: g.unverified, safeMode: g.safeMode, settlementUnknown: g.unknownSettlement, locallyBlocked: g.localBlock,
+      });
+      const d = decide(i);
+      expect(decide(i)).toEqual(d);
+      if (d.reasons.some((r) => DENY_ONLY.has(r))) expect(d.verdict).toBe("DENY");
+      if (d.reasons.length === 0) expect(d.verdict).toBe("ALLOW");
+      else expect(d.verdict).not.toBe("ALLOW");
+      if (g.safeMode || g.registryDown || g.noClaim) expect(d.verdict).not.toBe("ALLOW"); // an outage or no declaration is never a silent ALLOW
+    }), n);
+  }, 300_000);
 });

@@ -4,11 +4,13 @@ import { REBUTTAL_REASONS, digest, holdsRebuttalRole, rebuttalMessage, verifyReb
 import { PUBLIC_MODE, reader } from "../../../lib/server";
 
 const hex = (k: string) => (k.startsWith("0x") ? k : `0x${k}`) as `0x${string}`;
+/** Only the hash is ever stored: a rebuttal shows others a reason code and a time, never free text. */
+const evidenceHash = (reason: string, filedAt: number, evidence?: string | null) => digest(evidence?.trim().slice(0, 500) || `${reason}:${filedAt}`);
 
 /** Filed by the holder of the merchant's leash.rebuttal role. It only queues a probe; it never unblocks. */
 export async function POST(req: Request) {
   if (PUBLIC_MODE) return NextResponse.json({ error: "rebuttal desk is not public" }, { status: 403 });
-  const b = (await req.json()) as { ens: string; reason: string; filedAt: number; signer: `0x${string}`; signature: string };
+  const b = (await req.json()) as { ens: string; reason: string; filedAt: number; signer: `0x${string}`; signature: string; evidence?: string };
   if (!REBUTTAL_REASONS.includes(b.reason as never)) return NextResponse.json({ error: "unknown reason" }, { status: 400 });
 
   const r = reader();
@@ -16,7 +18,7 @@ export async function POST(req: Request) {
   if (!decl) return NextResponse.json({ error: "name has no declaration" }, { status: 404 });
 
   const { view } = await r.read(decl.payTo, Date.now() / 1000);
-  const row = { owner: "", payee: decl.payTo, ens: b.ens, reason: b.reason, evidenceHash: digest(`${b.reason}:${b.filedAt}`), filedAt: b.filedAt, signer: b.signer, signature: b.signature, episodeStart: view.blockStart ?? 0 };
+  const row = { owner: "", payee: decl.payTo, ens: b.ens, reason: b.reason, evidenceHash: evidenceHash(b.reason, b.filedAt, b.evidence), filedAt: b.filedAt, signer: b.signer, signature: b.signature, episodeStart: view.blockStart ?? 0 };
   if (!(await verifyRebuttalSignature(r.ns, row).catch(() => false))) return NextResponse.json({ error: "bad signature" }, { status: 403 });
   const resolver = await r.client.getEnsResolver({ name: normalize(b.ens) });
   if (!(await holdsRebuttalRole(r.client, resolver, b.signer))) {
@@ -38,5 +40,5 @@ export async function GET(req: Request) {
   const r = reader();
   const decl = await r.ens.fetch(ens);
   if (!decl) return NextResponse.json({ error: "name has no declaration" }, { status: 404 });
-  return NextResponse.json({ message: rebuttalMessage({ ns: r.ns, ens, payee: decl.payTo, reason, evidenceHash: digest(`${reason}:${filedAt}`), filedAt }) });
+  return NextResponse.json({ message: rebuttalMessage({ ns: r.ns, ens, payee: decl.payTo, reason, evidenceHash: evidenceHash(reason, filedAt, u.searchParams.get("evidence")), filedAt }) });
 }

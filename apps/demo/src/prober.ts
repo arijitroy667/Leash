@@ -4,6 +4,7 @@ import "dotenv/config";
 import { fileURLToPath } from "node:url";
 import { wrapFetchWithPayment } from "@x402/fetch";
 import { Transaction } from "@hiero-ledger/sdk";
+import type { StandingView } from "@leash/core";
 import { buildReader, deliveryCheck, digest, rawClient, safeError } from "@leash/guard";
 
 const env = process.env;
@@ -57,7 +58,14 @@ export async function probeOnce(reader: ReturnType<typeof buildReader>, ens: str
   return { result, txId, entityKey };
 }
 
-/** Probes after each unconsumed rebuttal, and once a policy day during probation. */
+/** The probe that is due, if any: one for a rebuttal filed during this block, and one a policy day during probation. */
+export function probeDue(view: StandingView, latestRebuttalAt: number | undefined, done: Set<string>, now: number, policyDaySec: number): string | null {
+  let key: string | null = null;
+  if (view.standing === "BLOCKED" && latestRebuttalAt !== undefined && latestRebuttalAt >= (view.blockStart ?? 0)) key = `r:${latestRebuttalAt}`;
+  if (view.standing === "PROBATION" && view.probationStart !== null) key = `p:${view.probationStart}:${Math.floor((now - view.probationStart) / policyDaySec)}`;
+  return key && !done.has(key) ? key : null;
+}
+
 export async function watch(names: string[], intervalMs = 5000) {
   const reader = buildReader();
   const done = new Set<string>();
@@ -66,14 +74,13 @@ export async function watch(names: string[], intervalMs = 5000) {
       try {
         const decl = await reader.ens.fetch(name);
         if (!decl) continue;
-        const { view, rows } = await reader.read(decl.payTo, Date.now() / 1000);
-        const latest = rows.rebuttals[0];
-        const blockedRebuttal = view.standing === "BLOCKED" && latest && !done.has(`r:${latest.filedAt}`);
-        const day = `p:${view.probationStart}:${Math.floor((Date.now() / 1000 - (view.probationStart ?? 0)) / reader.params.policyDaySec)}`;
-        const probationDue = view.standing === "PROBATION" && view.probationStart !== null && !done.has(day);
-        if (blockedRebuttal) done.add(`r:${latest!.filedAt}`);
-        if (probationDue) done.add(day);
-        if (blockedRebuttal || probationDue) console.log(name, view.standing, JSON.stringify(await probeOnce(reader, name)));
+        const now = Date.now() / 1000;
+        const { view, rows } = await reader.read(decl.payTo, now);
+        const due = probeDue(view, rows.rebuttals[0]?.filedAt, done, now, reader.params.policyDaySec);
+        if (due) {
+          done.add(due);
+          console.log(name, view.standing, JSON.stringify(await probeOnce(reader, name)));
+        }
       } catch (e) {
         console.error(name, "probe error", safeError(e));
       }

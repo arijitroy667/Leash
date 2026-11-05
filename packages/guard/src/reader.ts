@@ -2,7 +2,7 @@ import { AccountId, Client, PrivateKey, TopicMessageSubmitTransaction } from "@h
 import { createPublicClient, http, type PublicClient } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
-import { PROFILES, replay } from "@leash/core";
+import { DEFAULT_LIVE_BLOCK_SEC, DEFAULT_LIVE_DAY_SEC, PROFILES, liveProfile, replay, type PolicyParams } from "@leash/core";
 import { Arkiv } from "./arkiv.ts";
 import { Ens } from "./ens.ts";
 import { PUBLIC_FUNDERS, readVerifiedEvidence, verifyRebuttalRow } from "./evidence.ts";
@@ -11,9 +11,22 @@ import { safeError, Store } from "./store.ts";
 
 const hex = (k: string) => (k.startsWith("0x") ? k : `0x${k}`) as `0x${string}`;
 
+/**
+ * The policy from the environment. Only the live profile can be tuned: LEASH_LIVE_BLOCK_SEC is the block length per
+ * strike and LEASH_LIVE_DAY_SEC is the length of a policy day. Production always uses the PRD's durations.
+ */
+export function policyFromEnv(env: NodeJS.ProcessEnv = process.env): PolicyParams {
+  const profile = env.LEASH_POLICY_PROFILE || "production";
+  if (profile === "production") return PROFILES.production;
+  if (profile !== "live") throw new RangeError(`LEASH_POLICY_PROFILE must be production or live, not ${profile}`);
+  const day = env.LEASH_LIVE_DAY_SEC?.trim() ? Number(env.LEASH_LIVE_DAY_SEC) : DEFAULT_LIVE_DAY_SEC;
+  const blocks = env.LEASH_LIVE_BLOCK_SEC?.trim() ? env.LEASH_LIVE_BLOCK_SEC.split(",").map((v) => (v.trim() ? Number(v) : NaN)) : DEFAULT_LIVE_BLOCK_SEC;
+  return liveProfile(day, blocks);
+}
+
 /** One honest evidence reader for scripts and pages. */
 export function buildReader(env: NodeJS.ProcessEnv = process.env) {
-  const params = PROFILES[(env.LEASH_POLICY_PROFILE ?? "production") as "live" | "production"];
+  const params = policyFromEnv(env);
   const usdc = env.HEDERA_USDC ?? "0.0.429274";
   const ns = env.LEASH_NAMESPACE ?? "dev";
   const store = new Store(env.LEASH_DB ?? ".leash/leash.sqlite");

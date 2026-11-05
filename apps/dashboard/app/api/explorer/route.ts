@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { policySummary } from "@leash/core";
 import { originOf, payeesForDomain, validName } from "@leash/guard";
 import { ACCOUNT_ID, knownMerchants, merchantRow, namespaces, reader } from "../../../lib/server";
 
@@ -8,7 +9,7 @@ export async function GET(req: Request) {
   const q = new URL(req.url).searchParams;
   const key = q.get("key")?.trim();
   const r = reader(q.get("ns") ?? undefined);
-  const base = { now: Date.now() / 1000, profile: r.params.name, namespace: r.ns, namespaces: namespaces() };
+  const base = { now: Date.now() / 1000, profile: r.params.name, policyNote: policySummary(r.params), namespace: r.ns, namespaces: namespaces() };
   // Arkiv's keyless endpoint is rate limited, so the CDN answers repeat lookups for 5 seconds.
   const json = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { "cache-control": "public, s-maxage=5, stale-while-revalidate=10" } });
   const known = () => Promise.all(knownMerchants().map((m) => merchantRow(m.name ?? m.payTo!, m.payTo, r)));

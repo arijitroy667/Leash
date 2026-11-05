@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { PrivateKey } from "@hiero-ledger/sdk";
 import { deliveryCheck } from "../src/delivery.ts";
 import { parseDeclaration, validName } from "../src/ens.ts";
 import { reportMessage } from "../src/evidence.ts";
-import { parseTransfer, toMirrorTxId, verifyHederaSignature } from "../src/mirror.ts";
+import { Mirror, parseTransfer, toMirrorTxId, verifyHederaSignature } from "../src/mirror.ts";
+import { policyFromEnv } from "../src/reader.ts";
 import { Store, safeError } from "../src/store.ts";
 
 describe("delivery check", () => {
@@ -84,6 +85,63 @@ describe("safeError", () => {
     const e = new Error("timeout URL: https://rpc.example/ark_live_secret123 and ark_live_secret456");
     expect(safeError(e)).not.toMatch(/secret|rpc\.example/);
     expect(safeError({ shortMessage: "too slow", details: "https://x/ark_live_secret" })).toBe("too slow");
+  });
+});
+
+describe("Mirror verdict cache", () => {
+  afterEach(() => vi.unstubAllGlobals());
+  const tx = { transactions: [{ result: "SUCCESS", consensus_timestamp: "1000.5", token_transfers: [{ token_id: "0.0.1", account: "0.0.2", amount: 5 }, { token_id: "0.0.1", account: "0.0.3", amount: -5 }] }] };
+
+  it("a consensus result is final, so it is fetched once", async () => {
+    const f = vi.fn(async () => new Response(JSON.stringify(tx)));
+    vi.stubGlobal("fetch", f);
+    const m = new Mirror("https://m.test", "0.0.1", new Store(":memory:"));
+    expect(await m.tx("0.0.9@1.1")).toMatchObject({ found: true, success: true, payer: "0.0.3", payee: "0.0.2", consensusTs: 1000.5 });
+    await m.tx("0.0.9@1.1");
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+  it("not found may only be indexing lag, so it is never cached", async () => {
+    const f = vi.fn(async () => new Response("{}", { status: 404 }));
+    vi.stubGlobal("fetch", f);
+    const m = new Mirror("https://m.test", "0.0.1", new Store(":memory:"));
+    expect(await m.tx("0.0.9@1.1")).toEqual({ found: false, success: false });
+    await m.tx("0.0.9@1.1");
+    expect(f).toHaveBeenCalledTimes(2);
+  });
+  it("a server error throws and marks Mirror down", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => new Response("", { status: 503 })));
+    const store = new Store(":memory:");
+    await expect(new Mirror("https://m.test", "0.0.1", store).tx("0.0.9@1.1")).rejects.toThrow();
+    expect(store.healthAll()[0]).toMatchObject({ dep: "mirror", ok: false });
+  });
+});
+
+describe("the live clock from the environment", () => {
+  it("is production unless asked, and production ignores the clock settings", () => {
+    expect(policyFromEnv({}).name).toBe("production");
+    const p = policyFromEnv({ LEASH_POLICY_PROFILE: "production", LEASH_LIVE_BLOCK_SEC: "60", LEASH_LIVE_DAY_SEC: "1" });
+    expect(p.blockSec[0]).toBe(5 * 86400);
+    expect(p.policyDaySec).toBe(86400);
+  });
+  it("uses the defaults when the settings are empty", () => {
+    for (const env of [{ LEASH_POLICY_PROFILE: "live" }, { LEASH_POLICY_PROFILE: "live", LEASH_LIVE_BLOCK_SEC: " ", LEASH_LIVE_DAY_SEC: "" }]) {
+      expect(policyFromEnv(env)).toMatchObject({ name: "live", policyDaySec: 18, blockSec: [60, 120, 300] });
+    }
+  });
+  it("reads the configured values", () => {
+    expect(policyFromEnv({ LEASH_POLICY_PROFILE: "live", LEASH_LIVE_BLOCK_SEC: "120, 240,600", LEASH_LIVE_DAY_SEC: "30" })).toMatchObject({ policyDaySec: 30, blockSec: [120, 240, 600], holdSec: 90 });
+  });
+  it.each([
+    ["words for a block", { LEASH_LIVE_BLOCK_SEC: "one minute" }],
+    ["a stray comma", { LEASH_LIVE_BLOCK_SEC: "60,,300" }],
+    ["blocks that shrink", { LEASH_LIVE_BLOCK_SEC: "300,60" }],
+    ["words for a day", { LEASH_LIVE_DAY_SEC: "soon" }],
+    ["a day as long as the first block", { LEASH_LIVE_DAY_SEC: "60" }],
+  ])("stops at startup on %s", (_name, env) => {
+    expect(() => policyFromEnv({ LEASH_POLICY_PROFILE: "live", ...env })).toThrow(RangeError);
+  });
+  it("stops on an unknown profile rather than running on a guess", () => {
+    expect(() => policyFromEnv({ LEASH_POLICY_PROFILE: "demo" })).toThrow(RangeError);
   });
 });
 

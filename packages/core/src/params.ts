@@ -6,8 +6,8 @@ export interface PolicyParams {
   name: "production" | "live";
   /** One policy day: how often the prober retests a merchant in probation. */
   policyDaySec: number;
-  blockBaseSec: number;
-  blockMaxSec: number;
+  /** Block length by strike: first, second, third. Later strikes use the last value. */
+  blockSec: number[];
   holdSec: number;
   rebuttalCooldownSec: number;
   probationMinUnitSec: number;
@@ -30,8 +30,7 @@ export interface PolicyParams {
 const production: PolicyParams = {
   name: "production",
   policyDaySec: DAY,
-  blockBaseSec: 5 * DAY,
-  blockMaxSec: 20 * DAY,
+  blockSec: [5 * DAY, 10 * DAY, 20 * DAY],
   holdSec: 72 * HOUR,
   rebuttalCooldownSec: 24 * HOUR,
   probationMinUnitSec: 3 * DAY,
@@ -51,24 +50,46 @@ const production: PolicyParams = {
   youngAccountSec: 24 * HOUR,
 };
 
-const LIVE_DAY = 18; // 1 policy day = 18 real seconds, disclosed on screen
+export const DEFAULT_LIVE_DAY_SEC = 18;
+export const DEFAULT_LIVE_BLOCK_SEC = [60, 120, 300];
 
-const live: PolicyParams = {
-  ...production,
-  name: "live",
-  policyDaySec: LIVE_DAY,
-  blockBaseSec: 5 * LIVE_DAY,
-  blockMaxSec: 20 * LIVE_DAY,
-  holdSec: 3 * LIVE_DAY,
-  rebuttalCooldownSec: LIVE_DAY,
-  probationMinUnitSec: 3 * LIVE_DAY,
-  strikeMemorySec: 60 * LIVE_DAY,
-  reportTtlSec: 60 * LIVE_DAY,
-  badPerPayeeWindowSec: LIVE_DAY,
-  standingFreshSec: 5,
-};
+/**
+ * The live profile runs the same engine on real elapsed time, with shorter durations. It throws on a clock that would
+ * break the rules rather than quietly running something else, since standing is derived from these values by every reader.
+ */
+export function liveProfile(daySec = DEFAULT_LIVE_DAY_SEC, blockSec = DEFAULT_LIVE_BLOCK_SEC): PolicyParams {
+  if (!(daySec > 0)) throw new RangeError("The live policy day must be a positive number of seconds");
+  if (!blockSec.length || blockSec.some((sec) => !(sec > 0))) throw new RangeError("Live block lengths must be positive numbers of seconds");
+  if (blockSec.some((sec, i) => i > 0 && sec < blockSec[i - 1]!)) throw new RangeError("Live block lengths must not shrink: a repeat offender cannot get a shorter block");
+  // The per-payee report window and the rebuttal cooldown are one day, and both must fit inside a block.
+  if (blockSec[0]! <= daySec) throw new RangeError("The first live block must be longer than one policy day");
+  // A block exists only while its reports do, so evidence must outlive every block in a chain of strikes.
+  const memory = Math.max(60 * daySec, 2 * blockSec.reduce((sum, sec) => sum + sec, 0));
+  return {
+    ...production,
+    name: "live",
+    policyDaySec: daySec,
+    blockSec,
+    holdSec: 3 * daySec,
+    rebuttalCooldownSec: daySec,
+    probationMinUnitSec: 3 * daySec,
+    strikeMemorySec: memory,
+    reportTtlSec: memory,
+    badPerPayeeWindowSec: daySec,
+    standingFreshSec: 5,
+  };
+}
 
-export const PROFILES = { production, live } as const;
+const span = (sec: number) => (sec % 60 === 0 ? `${sec / 60} min` : `${sec} s`);
+
+/** The disclosure shown on screen, from the values actually in use. */
+export function policySummary(p: PolicyParams): string {
+  const blocks = p.blockSec.map(span);
+  const list = blocks.length > 1 ? `${blocks.slice(0, -1).join(", ")}, then ${blocks.at(-1)}` : blocks[0];
+  return `1 policy day = ${p.policyDaySec} real seconds. Blocks last ${list}.`;
+}
+
+export const PROFILES = { production, live: liveProfile() } as const;
 
 export const DEFAULT_LIMITS = {
   perCallCeiling: 1.0,

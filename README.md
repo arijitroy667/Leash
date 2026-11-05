@@ -273,6 +273,21 @@ A default `x402Client` has its own spend controls, which reject some challenges 
 | `apps/demo` | Real merchants, prober, scene runner, setup scripts |
 | `arkiv/` | Arkiv submission files |
 
+## The demo clock
+
+`LEASH_POLICY_PROFILE=live` runs the same engine on real elapsed time, with shorter durations. Two settings in `.env` control it, and the banner on the console and explorer always shows the values in use.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `LEASH_LIVE_BLOCK_SEC` | `60,120,300` | Block length in seconds at strike 1, 2 and 3. Later strikes use the last value |
+| `LEASH_LIVE_DAY_SEC` | `18` | Real seconds in one policy day. Sets the hold (3 days), rebuttal cooldown (1 day) and probation minimum (3 days) |
+
+- **What it refuses:** a value that is not a positive number, blocks that shrink, or a first block no longer than one policy day. The guard stops at startup rather than run on a broken clock.
+- **Evidence expiry:** 60 policy days, or twice the total of the blocks if that is longer, so a block's reports can never expire before the block does.
+- **Keep readers in step:** standing is worked out by each reader, so set the same values on the explorer's Vercel project and redeploy it.
+- **Scene timing:** the rebuttal scene takes about 30 seconds and must land during the first block, so keep the first block at 45 seconds or more for the full show.
+- **Production:** these settings have no effect. `LEASH_POLICY_PROFILE=production` always uses the PRD's durations.
+
 ## Changes from PRD v2.1
 
 The PRD asks for any rule it does not contain to be recorded here, with a reason.
@@ -284,6 +299,10 @@ The PRD asks for any rule it does not contain to be recorded here, with a reason
 | The G5 per-payee window is a live-profile duration (18 s) | Otherwise agent A's second bad report in scene 6 would be ignored |
 | Evidence scope stays at probation entry after probation ends | In the live profile, decay is not shortened, so evidence from before a block could trigger another |
 | `stale-challenge` uses the time this request received its 402 | A fresh 402 for the same price has the same hash, so a first-seen time could never clear |
+| Live blocks default to 1, 2 and 5 minutes rather than 90, 180 and 360 seconds, and are set in `.env` | Chosen by the team for demo pacing; the block length per strike is now a list, and production's list is the PRD's 5, 10 and 20 days |
+| The filmed order runs the rebuttal straight after scene 2 | With a 1-minute block it has to land while the block is still on |
+| The SDK config is `ownerAddress`, `hederaAccount`, `hederaKey`, `limits.replayWindowSec`, not the PRD's `owner.address` and `replayWindowSec`. `network` and `unknownMerchantPolicy` are fixed, so they are not settings | The guard signs reports with the payer's key, so it needs that key; `unknownMerchantPolicy` is fixed in v2 anyway |
+| `leash_pay_request` also returns `no_payment` and `unconfirmed` | "Paid" must mean paid. A page that asks for no payment, or a merchant that failed after payment, returns no body, because the PRD allows a body only on a successfully paid call |
 | New ESCALATE reason `settlement-unknown` | Section 12 says an unknown settlement outcome escalates, but names no code |
 | New DENY reason `locally-blocked` | "Reject and block locally" needs a reason, and the PRD gives none |
 | An amount above `leash.maxPrice` on a stale declaration escalates, as `declared-stale-mismatch` | A stale record may be out of date, and section 12 says a stale declaration never denies |
@@ -304,7 +323,7 @@ The PRD asks for any rule it does not contain to be recorded here, with a reason
 - **Pre-existing work:** `Leash PRDv2.1.md` is planning material written before any code, and is disclosed as such. No code predates 15:03 IST on Nov 5, 2026.
 - **Commit history:** the first commit squashes 11 earlier commits made between 15:03 and 21:03 IST on Nov 5, 2026. Later commits are dated as they happen.
 - **Testnets:** Hedera testnet, Arkiv testnet and ENSv2 on Sepolia, with test tokens. ENS's Sepolia registrar charges fees in its own test token, named `MockUSDC`. We deploy no mock contracts.
-- **Live profile:** the demo uses a disclosed policy profile where 1 policy day = 18 real seconds. See `arkiv/friction.md`.
+- **Live profile:** the demo uses a disclosed policy profile, by default 1 policy day = 18 real seconds with blocks of 1, 2 and 5 minutes. The screen always shows the values in use. See `arkiv/friction.md`.
 
 ## License
 

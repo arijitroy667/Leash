@@ -5,6 +5,7 @@ import { createClientHederaSigner } from "@x402/hedera";
 import { ExactHederaScheme } from "@x402/hedera/exact/client";
 import { privateKeyToAccount } from "viem/accounts";
 import { createLeashGuard } from "./guard.ts";
+import { policyFromEnv } from "./reader.ts";
 
 const hex = (k: string) => (k.startsWith("0x") ? k : `0x${k}`) as `0x${string}`;
 
@@ -32,7 +33,7 @@ export function buildAgent(letter: string, env: NodeJS.ProcessEnv = process.env)
     arkivAccessKey: env.ARKIV_ACCESS_KEY ?? "",
     arkivRpcUrl: env.ARKIV_RPC_URL,
     namespace: env.LEASH_NAMESPACE ?? "dev",
-    policyProfile: (env.LEASH_POLICY_PROFILE ?? "production") as "live" | "production",
+    policy: policyFromEnv(env),
     sepoliaRpcUrl: env.SEPOLIA_RPC_URL,
     mirrorUrl: env.MIRROR_URL,
     usdc: env.HEDERA_USDC ?? "0.0.429274",

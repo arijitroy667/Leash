@@ -15,7 +15,7 @@ Kept live during the build. Newest findings are added at the end.
 
 ## Disclosure: live policy profile
 
-The demo runs with `LEASH_POLICY_PROFILE=live`, where 1 policy day = 18 real seconds, shown on screen. It shortens block, hold, cooldown, strike-memory and entity-expiry durations. It is not a moved clock: timestamps come from Hedera consensus, Arkiv entities really expire, and every payment is real on testnet. Fixtures and defaults use the `production` profile.
+The demo runs with `LEASH_POLICY_PROFILE=live`, by default 1 policy day = 18 real seconds with blocks of 1, 2 and 5 minutes, set in `.env` and shown on screen. It shortens block, hold, cooldown, strike-memory and entity-expiry durations. It is not a moved clock: timestamps come from Hedera consensus, Arkiv entities really expire, and every payment is real on testnet. Fixtures and defaults use the `production` profile.
 
 ## Other sponsors, recorded for the debrief
 

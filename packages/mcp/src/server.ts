@@ -44,8 +44,12 @@ export function buildServer(letter: string, agent: ReturnType<typeof buildAgent>
       }
       const res = await paidFetch(url, { method, leashIdempotent: !!idempotencyKey });
       const leash = (res as any).leash;
+      // No payment was asked for, so nothing was bought, and an unpaid page is exactly where injected text would sit.
+      if (!leash) return json({ status: "no_payment", httpStatus: res.status });
+      // The merchant did not confirm: it may have settled or not, and asking again is covered by the replay and Mirror checks.
+      if (!res.ok) return json({ status: "unconfirmed", httpStatus: res.status, txId: leash.txId, decisionId: leash.decisionId, delivered: false });
       const body = (await res.text()).slice(0, BODY_CAP);
-      return json({ status: "paid", httpStatus: res.status, txId: leash?.txId ?? null, decisionId: leash?.decisionId ?? null, delivered: leash?.delivered ?? null, untrusted: true, body });
+      return json({ status: "paid", httpStatus: res.status, txId: leash.txId, decisionId: leash.decisionId, delivered: leash.delivered, untrusted: true, body });
     } catch (e) {
       if (e instanceof LeashEscalated) {
         return json({ status: "pending_approval", approvalId: e.approvalId, decisionId: e.decision.id, reasons: e.decision.reasons, standing: e.decision.standing, score: e.decision.score });

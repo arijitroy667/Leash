@@ -107,12 +107,14 @@ interface State {
 const strikesAt = (s: State, at: number, p: PolicyParams) =>
   s.episodes.filter((e) => e <= at && at - e <= p.strikeMemorySec).length;
 
+/** How long a block lasts at this strike. Strikes past the end of the list use the last value. */
+export const blockLength = (strike: number, p: PolicyParams) => p.blockSec[Math.min(strike, p.blockSec.length) - 1]!;
+
 function startBlock(s: State, ts: number, p: PolicyParams) {
   s.episodes.push(ts);
-  const n = strikesAt(s, ts, p);
   s.standing = "BLOCKED";
   s.blockStart = ts;
-  s.blockEnd = ts + Math.min(p.blockBaseSec * 2 ** (n - 1), p.blockMaxSec);
+  s.blockEnd = ts + blockLength(strikesAt(s, ts, p), p);
   s.earlyExitAt = null;
   s.rebuttalUsed = false;
   s.awaitingProbe = false;

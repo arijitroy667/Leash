@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { DEFAULT_LIMITS } from "@leash/core";
+import { DEFAULT_LIMITS, policySummary } from "@leash/core";
 import { approvalMessage, safeError, type Store } from "@leash/guard";
 import { PUBLIC_MODE, knownMerchants, merchantRow, reader } from "../../../lib/server";
 
@@ -30,6 +30,7 @@ export async function GET() {
   return NextResponse.json({
     now,
     profile: r.params.name,
+    policyNote: policySummary(r.params),
     namespace: r.ns,
     owner: process.env.LEASH_OWNER_ADDRESS ?? null,
     topic: process.env.HCS_TOPIC_ID ?? null,

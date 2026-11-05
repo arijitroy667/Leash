@@ -8,7 +8,7 @@ A blacklist that never forgets is unfair, and one that forgets too easily is use
 
 | | Production | Live demo profile |
 | --- | --- | --- |
-| Entity lifetime | 60 days | 18 minutes |
+| Entity lifetime | 60 days | 18 minutes by default |
 | Strike memory | 60 days | Shortened by the same ratio |
 
 On a regular database or a permanent chain, we would have to build deletion ourselves and ask people to trust it. Here the network enforces it.

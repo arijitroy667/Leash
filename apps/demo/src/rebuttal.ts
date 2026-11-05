@@ -1,4 +1,4 @@
-// Files a real signed rebuttal. Usage: tsx apps/demo/src/rebuttal.ts <role|norole> [reason]
+// Files a real signed rebuttal. Usage: tsx apps/demo/src/rebuttal.ts <role|norole> [reason] [evidence url or hash]
 // "norole" signs with a fresh wallet holding no ENS role, to show the check rejects it.
 import "dotenv/config";
 import { bytesToHex, createWalletClient, http, parseAbi } from "viem";
@@ -10,7 +10,7 @@ import { buildReader } from "./prober.ts";
 
 const env = process.env;
 const hex = (k: string) => (k.startsWith("0x") ? k : `0x${k}`) as `0x${string}`;
-const [, , who = "role", reason = "config-error"] = process.argv;
+const [, , who = "role", reason = "config-error", evidence = ""] = process.argv;
 if (!REBUTTAL_REASONS.includes(reason as never)) throw new Error(`reason must be one of ${REBUTTAL_REASONS.join(", ")}`);
 
 const reader = buildReader();
@@ -22,7 +22,7 @@ const signer = privateKeyToAccount(who === "role" ? hex(env.LEMON_REBUTTAL_KEY!)
 const now = Date.now() / 1000;
 const { view } = await reader.read(decl.payTo, now);
 const filedAt = Math.floor(now);
-const fields = { ens, payee: decl.payTo, reason, evidenceHash: digest(`${reason}:${filedAt}`), filedAt };
+const fields = { ens, payee: decl.payTo, reason, evidenceHash: digest(evidence || `${reason}:${filedAt}`), filedAt };
 const signature = await signer.signMessage({ message: rebuttalMessage({ ns: reader.ns, ...fields }) });
 
 const resolver = await reader.client.getEnsResolver({ name: normalize(ens) });
