@@ -10,7 +10,7 @@ import {
 } from "@leash/core";
 import { Arkiv } from "./arkiv.ts";
 import { deliveryCheck } from "./delivery.ts";
-import { Ens, validName, type DeclarationResult } from "./ens.ts";
+import { Ens, validAccount, validName, type DeclarationResult } from "./ens.ts";
 import { PUBLIC_FUNDERS, digest, readVerifiedEvidence, reportMessage, verifyRebuttalRow } from "./evidence.ts";
 import { Mirror } from "./mirror.ts";
 import { safeError, Store, type Approval } from "./store.ts";
@@ -99,12 +99,12 @@ export function createLeashGuard(cfg: GuardConfig) {
   }
 
   /** Fresh read, else the staleness rules in core decide what the cached view is worth. */
-  async function standing(payee: string, now: number): Promise<{ status: "fresh" | "stale" | "none"; view?: StandingView; unverified: number }> {
+  async function standing(payee: string, now: number): Promise<{ status: "fresh" | "stale" | "none"; view?: StandingView; incomplete: boolean }> {
     const cached = store.standingGet(payee);
     // A cached block past its end must be re-read: core derives what comes next, not the cache.
     const expired = cached?.blockEnd != null && cached.blockEnd <= now;
     if (cached && !expired && now - cached.computedAt <= params.standingFreshSec) {
-      return { status: "fresh", view: cached, unverified: 0 };
+      return { status: "fresh", view: cached, incomplete: false };
     }
     try {
       const v = await evidence(payee);
@@ -112,16 +112,25 @@ export function createLeashGuard(cfg: GuardConfig) {
       // With Mirror down the view is missing evidence, so caching it would turn the next call into a false ALLOW.
       if (!v.incomplete) store.standingPut(payee, view);
       store.setHealth("arkiv", true, now);
-      return { status: "fresh", view, unverified: v.unverifiedBadClusters };
+      return { status: "fresh", view, incomplete: v.incomplete };
     } catch (e) {
       store.setHealth("arkiv", false, now, safeError(e));
-      return cached ? { status: "stale", view: cached, unverified: 0 } : { status: "none", unverified: 0 };
+      return cached ? { status: "stale", view: cached, incomplete: false } : { status: "none", incomplete: false };
     }
   }
-  function toChallenge(req: any, resourceUrl: string): Challenge {
+  /**
+   * The 402 is merchant text. A payTo that is not a plain account id, or an amount that is not a whole number, is
+   * refused, and replaced here so that it never reaches a log, a card or a tool result.
+   */
+  function toChallenge(req: any, url?: string): { challenge: Challenge; malformed: boolean } {
+    const payTo = validAccount(req.payTo) ? req.payTo : "invalid";
+    const amountOk = /^\d{1,18}$/.test(String(req.amount));
     return {
-      scheme: req.scheme, network: req.network, asset: req.asset, amountUsd: Number(req.amount) / 1e6, payTo: req.payTo,
-      resourceUrl, maxTimeoutSeconds: req.maxTimeoutSeconds, extra: req.extra,
+      challenge: {
+        scheme: req.scheme, network: req.network, asset: req.asset, amountUsd: amountOk ? Number(req.amount) / 1e6 : 0, payTo,
+        resourceUrl: url ?? `unknown://${payTo}`, maxTimeoutSeconds: req.maxTimeoutSeconds, extra: req.extra,
+      },
+      malformed: !amountOk || payTo !== req.payTo,
     };
   }
 
@@ -139,15 +148,16 @@ export function createLeashGuard(cfg: GuardConfig) {
     }
   }
 
-  async function evaluate(req: any, ctx: RequestCtx | undefined): Promise<{ decision: Decision; declaration: DeclarationResult }> {
+  async function evaluate(req: any, ctx: RequestCtx | undefined): Promise<{ decision: Decision; declaration: DeclarationResult; challenge: Challenge }> {
+    const started = performance.now();
     const now = nowSec();
     store.expireApprovals(now);
     if (store.safeMode()) await probeDependencies(now);
-    const challenge = toChallenge(req, ctx?.url ?? `unknown://${req.payTo}`);
+    const { challenge, malformed } = toChallenge(req, ctx?.url);
     const hash = challengeHash(challenge);
     const claim = validName(req.extra?.leashEns) ? (req.extra.leashEns as string) : null;
-    const [declaration, reg] = await Promise.all([ens.resolve(claim, now), standing(req.payTo, now)]);
-    const merchant = claim && declaration.value ? claim : req.payTo;
+    const [declaration, reg] = await Promise.all([ens.resolve(claim, now), standing(challenge.payTo, now)]);
+    const merchant = claim && declaration.value ? claim : challenge.payTo;
     const decision = decide({
       now, challenge, claim, declaration,
       realOrigin: ctx?.origin ?? null,
@@ -156,16 +166,18 @@ export function createLeashGuard(cfg: GuardConfig) {
       challengeState: { receivedAt: ctx?.receivedAt ?? now, paidAt: store.paidAt(cfg.agent, hash) },
       idempotent: ctx?.idempotent,
       escalationsLastHour: store.countNewEscalations(cfg.agent, now, hash),
-      unverifiedBadClusters: reg.unverified,
+      unverifiedEvidence: reg.incomplete,
+      malformedChallenge: malformed,
       safeMode: store.safeMode(),
       settlementUnknown: await settlementUnknown(hash, now),
-      locallyBlocked: store.isLocallyBlocked(req.payTo),
+      locallyBlocked: store.isLocallyBlocked(challenge.payTo),
       limits, params,
     });
-    return { decision, declaration };
+    decision.latencyMs = Math.round(performance.now() - started);
+    return { decision, declaration, challenge };
   }
 
-  function pendingApproval(d: Decision, req: any, declaration: DeclarationResult): string {
+  function pendingApproval(d: Decision, payTo: string, declaration: DeclarationResult): string {
     const open = store.listApprovals("pending", 200).find((a) => a.agent === cfg.agent && a.challengeHash === d.challengeHash);
     if (open) return open.id;
     const id = randomUUID();
@@ -174,7 +186,7 @@ export function createLeashGuard(cfg: GuardConfig) {
       id, agent: cfg.agent, decisionId: d.id, challengeHash: d.challengeHash, createdAt: d.at, expiresAt: d.at + limits.replayWindowSec,
       // Structured fields only. Raw merchant text is never rendered.
       card: {
-        merchant: d.merchantKey, payTo: String(req.payTo), standing: d.standing, amountUsd: d.amountUsd,
+        merchant: d.merchantKey, payTo, standing: d.standing, amountUsd: d.amountUsd,
         score: Math.round(d.score * 10) / 10, reasons: d.reasons.slice(0, 3), remainingCap24h: remaining,
         declaredMaxUsd: declaration.value?.maxPriceUsd ?? null,
       },
@@ -196,25 +208,27 @@ export function createLeashGuard(cfg: GuardConfig) {
   const audit = (type: string, dedupe: string, body: Record<string, unknown>) => {
     if (cfg.hcsTopicId) store.enqueue("hcs", `hcs:${type}:${dedupe}`, { type, ...body });
   };
-  const auditDecision = (d: Decision) =>
+  /** Every decision, paid or dry run: one stored row, one structured log line and one audit message (NFR-07). */
+  function record(d: Decision) {
+    store.saveDecision(cfg.agent, d);
     audit("decision", d.id, { id: d.id, agent: cfg.agent, verdict: d.verdict, reasons: d.reasons, merchant: d.merchantKey, standing: d.standing, score: Math.round(d.score * 10) / 10, amountUsd: d.amountUsd, challengeHash: d.challengeHash, at: d.at });
+    console.error(JSON.stringify({ leash: "decision", agent: cfg.agent, ...d }));
+  }
 
   function attach(client: { onBeforePaymentCreation: Function; onAfterPaymentCreation: Function }) {
     client.onBeforePaymentCreation(async (hook: any) => {
       const ctx = als.getStore();
       const req = hook.selectedRequirements;
-      const { decision, declaration } = await evaluate(req, ctx);
-      store.saveDecision(cfg.agent, decision);
-      auditDecision(decision);
+      const { decision, declaration, challenge } = await evaluate(req, ctx);
+      record(decision);
       if (ctx) ctx.decision = decision;
-      console.error(JSON.stringify({ leash: "decision", agent: cfg.agent, id: decision.id, verdict: decision.verdict, reasons: decision.reasons, standing: decision.standing, score: decision.score, merchant: decision.merchantKey }));
       (hook as any).__declaration = declaration;
       if (ctx) (ctx as any).schema = declaration.value?.schema ?? [];
       if (cfg.mode === "observe" || decision.verdict === "ALLOW") return;
       const reason = `leash:${decision.verdict}:${decision.reasons.join(",")}`;
       if (decision.verdict === "DENY") return { abort: true, reason };
       if (await useApproval(decision.challengeHash, decision.at)) return;
-      const approvalId = pendingApproval(decision, req, declaration);
+      const approvalId = pendingApproval(decision, challenge.payTo, declaration);
       decision.approvalId = approvalId;
       store.saveDecision(cfg.agent, decision);
       if (ctx) ctx.approvalId = approvalId;
@@ -227,10 +241,10 @@ export function createLeashGuard(cfg: GuardConfig) {
       const d = ctx?.decision;
       if (!ctx || !d) {
         // Outside guardedFetch, so there is no response to check or report on. The owner approved it, and it still counts.
-        const challenge = toChallenge(req, `unknown://${req.payTo}`);
+        const { challenge } = toChallenge(req);
         const at = nowSec();
         store.markPaid(cfg.agent, challengeHash(challenge), at);
-        store.recordSpend({ agent: cfg.agent, session, merchant: req.payTo, resource: normalizeUrl(challenge.resourceUrl), standing: "UNKNOWN", amount: challenge.amountUsd, at });
+        store.recordSpend({ agent: cfg.agent, session, merchant: challenge.payTo, resource: normalizeUrl(challenge.resourceUrl), standing: "UNKNOWN", amount: challenge.amountUsd, at });
         return;
       }
       const tx = Transaction.fromBytes(Buffer.from(String(hook.paymentPayload.payload.transaction), "base64"));
@@ -316,9 +330,7 @@ export function createLeashGuard(cfg: GuardConfig) {
 
   async function flush() {
     const now = nowSec();
-    for (const item of store.dueOutbox(now, 25)) {
-      // A report is signed by its own payer, so each guard delivers only its own.
-      if (item.kind === "report" && item.payload.agent !== cfg.agent) continue;
+    for (const item of store.dueOutbox(now, 25, cfg.agent)) {
       if (!store.claimOutbox(item.id, now)) continue;
       try {
         if ((await deliverOutboxItem(item)) === "done") store.outboxDone(item.id);
@@ -365,8 +377,7 @@ export function createLeashGuard(cfg: GuardConfig) {
     async check(a: { url: string; requirements: any }) {
       const ctx: RequestCtx = { url: a.url, origin: new URL(a.url).origin, receivedAt: nowSec(), idempotent: false };
       const { decision: d } = await evaluate(a.requirements, ctx);
-      store.saveDecision(cfg.agent, d);
-      auditDecision(d);
+      record(d);
       return d;
     },
     explain: (id: string) => store.getDecision(id),

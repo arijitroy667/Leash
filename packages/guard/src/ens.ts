@@ -12,9 +12,15 @@ const NAME = /^([a-z0-9-]+\.)+[a-z][a-z0-9-]*$/;
 /** Merchant-supplied, so validated before it goes anywhere. */
 export const validName = (n: unknown): n is string => typeof n === "string" && n.length <= 255 && NAME.test(n);
 
+/**
+ * A plain Hedera account id, the only payTo Leash accepts. It keeps merchant text out of results and cards, and it
+ * refuses checksum and alias forms: Mirror Node names the numeric id, so reports against those could never verify.
+ */
+export const validAccount = (s: unknown): s is string => typeof s === "string" && /^0\.0\.\d{1,12}$/.test(s);
+
 export function parseDeclaration(rec: Record<string, string | null>): Declaration | null {
   const payTo = rec["leash.payTo"];
-  if (!payTo) return null;
+  if (!validAccount(payTo)) return null;
   const list = (v: string | null | undefined) => (v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   return {
     payTo,

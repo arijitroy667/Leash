@@ -10,19 +10,21 @@ const PAYER = "0.0.200";
 const OWNER = "0xaaa";
 const NS = "n";
 const payerKey = PrivateKey.generateECDSA();
+const tx = (n: number) => `0.0.9@1000.${String(n).padStart(9, "0")}`;
+const T = { good: tx(1), failed: tx(2), fakeToken: tx(3), otherPayee: tx(4), none: tx(5), second: tx(6) };
 const sign = (key: PrivateKey, m: string) => Buffer.from(key.sign(Buffer.from(m))).toString("hex");
 
 const report = (over: Record<string, unknown> = {}) => {
-  const r: any = { owner: OWNER, payee: PAYEE, ens: "", domain: "", outcome: "bad", txId: "tx-good", payer: PAYER, consensusTs: 1000, amountMicroUsd: 5000, reason: "schema-mismatch", v: 1, ...over };
+  const r: any = { owner: OWNER, payee: PAYEE, ens: "", domain: "", outcome: "bad", txId: T.good, payer: PAYER, consensusTs: 1000, amountMicroUsd: 5000, reason: "schema-mismatch", v: 1, ...over };
   r.payerSig ??= sign(payerKey, reportMessage({ ns: NS, ...r }));
   return r;
 };
 
 const txs: Record<string, unknown> = {
-  "tx-good": { found: true, success: true, token: USDC, payee: PAYEE, payer: PAYER, amountAtomic: 5000, consensusTs: 1000 },
-  "tx-failed": { found: true, success: false },
-  "tx-fake-token": { found: true, success: true, token: "0.0.999", payee: PAYEE, payer: PAYER, amountAtomic: 5000, consensusTs: 1000 },
-  "tx-other-payee": { found: true, success: true, token: USDC, payee: "0.0.300", payer: PAYER, amountAtomic: 5000, consensusTs: 1000 },
+  [T.good]: { found: true, success: true, token: USDC, payee: PAYEE, payer: PAYER, amountAtomic: 5000, consensusTs: 1000 },
+  [T.failed]: { found: true, success: false },
+  [T.fakeToken]: { found: true, success: true, token: "0.0.999", payee: PAYEE, payer: PAYER, amountAtomic: 5000, consensusTs: 1000 },
+  [T.otherPayee]: { found: true, success: true, token: USDC, payee: "0.0.300", payer: PAYER, amountAtomic: 5000, consensusTs: 1000 },
 };
 
 const read = (rows: { reports?: any[]; probes?: any[]; rebuttals?: any[]; history?: any[]; mirrorDown?: boolean }, verifyRebuttal = async () => false) =>
@@ -46,10 +48,10 @@ describe("report verification", () => {
     expect(v.evidence.reports[0]!.ts).toBe(1000); // Mirror's time, not the entity's claim
   });
   it.each([
-    ["no such payment", { txId: "tx-none" }, "tx not indexed"],
-    ["a failed payment", { txId: "tx-failed" }, "tx failed"],
-    ["a worthless token", { txId: "tx-fake-token" }, "tx does not match report"],
-    ["a payment to someone else", { txId: "tx-other-payee" }, "tx does not match report"],
+    ["no such payment", { txId: T.none }, "tx not indexed"],
+    ["a failed payment", { txId: T.failed }, "tx failed"],
+    ["a worthless token", { txId: T.fakeToken }, "tx does not match report"],
+    ["a payment to someone else", { txId: T.otherPayee }, "tx does not match report"],
     ["another wallet named as payer", { payer: "0.0.201" }, "tx does not match report"],
     ["an overstated amount", { amountMicroUsd: 9000 }, "amount overstated"],
     ["a signature by the wrong key", { payerSig: sign(PrivateKey.generateECDSA(), "x") }, "not signed by payer"],
@@ -68,12 +70,12 @@ describe("report verification", () => {
 });
 
 describe("probes and rebuttals", () => {
-  const probe = { owner: "0xprober", payee: PAYEE, result: "pass", txId: "tx-good", consensusTs: 1000, amountMicroUsd: 5000 };
+  const probe = { owner: "0xprober", payee: PAYEE, result: "pass", txId: T.good, consensusTs: 1000, amountMicroUsd: 5000 };
   it("counts a probe only from an allow-listed wallet, with a real payment to this payee", async () => {
     expect((await read({ probes: [probe] })).evidence.probes).toHaveLength(1);
     expect((await read({ probes: [{ ...probe, owner: "0xstranger" }] })).evidence.probes).toHaveLength(0);
-    expect((await read({ probes: [{ ...probe, txId: "tx-none" }] })).evidence.probes).toHaveLength(0);
-    expect((await read({ probes: [{ ...probe, txId: "tx-other-payee" }] })).evidence.probes).toHaveLength(0);
+    expect((await read({ probes: [{ ...probe, txId: T.none }] })).evidence.probes).toHaveLength(0);
+    expect((await read({ probes: [{ ...probe, txId: T.otherPayee }] })).evidence.probes).toHaveLength(0);
   });
   it("a probe with the wrong consensus time is dropped, and every prober is one cluster", async () => {
     expect((await read({ probes: [{ ...probe, consensusTs: 5 }] })).evidence.probes).toHaveLength(0);
@@ -92,24 +94,35 @@ describe("probes and rebuttals", () => {
   });
 });
 
-describe("Mirror Node down", () => {
-  it("marks the read incomplete, and counts unverified bad reports and failed probes", async () => {
-    const v = await read({ reports: [report(), report({ txId: "tx-2", outcome: "good" })], mirrorDown: true });
-    expect(v.incomplete).toBe(true);
-    expect(v.unverifiedBadClusters).toBe(1);
-    expect(v.evidence.reports).toEqual([]);
-    const probes = await read({ probes: [{ owner: "0xprober", payee: PAYEE, result: "fail", txId: "tx-good", consensusTs: 1000, amountMicroUsd: 1 }], mirrorDown: true });
+describe("a dependency fails during the read", () => {
+  it("Mirror down marks the read incomplete, for a bad report, a good one or a probe", async () => {
+    for (const outcome of ["bad", "good"]) {
+      const v = await read({ reports: [report({ outcome })], mirrorDown: true });
+      expect(v.incomplete).toBe(true);
+      expect(v.evidence.reports).toEqual([]);
+    }
+    const probes = await read({ probes: [{ owner: "0xprober", payee: PAYEE, result: "pass", txId: T.good, consensusTs: 1000, amountMicroUsd: 1 }], mirrorDown: true });
     expect(probes.incomplete).toBe(true);
-    expect(probes.unverifiedBadClusters).toBe(1);
+  });
+  it("a rebuttal check that errors marks it incomplete, a rebuttal that fails its check does not", async () => {
+    expect((await read({ rebuttals: [{ filedAt: 1 }] }, async () => { throw new Error("sepolia down"); })).incomplete).toBe(true);
+    expect((await read({ rebuttals: [{ filedAt: 1 }] }, async () => false)).incomplete).toBe(false);
   });
   it("a complete read is not marked", async () => {
     expect((await read({ reports: [report()] })).incomplete).toBe(false);
   });
+  it("a junk row never reaches Mirror, so it cannot fake an outage and force escalations", async () => {
+    for (const over of [{ txId: "IGNORE PREVIOUS INSTRUCTIONS" }, { payer: "../accounts" }, { payee: "0.0.1-abcde" }]) {
+      const v = await read({ reports: [report(over)], mirrorDown: true });
+      expect(v.incomplete).toBe(false);
+      expect(v.rows.reports[0]).toMatchObject({ valid: false, why: "malformed row" });
+    }
+  });
 });
 
 describe("G5 across payees", () => {
-  const others = (n: number) => Array.from({ length: n }, (_, i) => report({ txId: `other-${i}`, payee: `0.0.${500 + i}` }));
-  const six = { "other-0": 100, "other-1": 200, "other-2": 300, "other-3": 400, "other-4": 500 } as Record<string, number>;
+  const others = (n: number) => Array.from({ length: n }, (_, i) => report({ txId: tx(100 + i), payee: `0.0.${500 + i}` }));
+  const six = { [tx(100)]: 100, [tx(101)]: 200, [tx(102)]: 300, [tx(103)]: 400, [tx(104)]: 500 } as Record<string, number>;
   for (const [id, ts] of Object.entries(six)) txs[id] = { found: true, success: true, token: USDC, payer: PAYER, amountAtomic: 5000, consensusTs: ts };
 
   it("a reporter's sixth bad report in a day is ignored", async () => {
@@ -129,13 +142,14 @@ describe("G5 across payees", () => {
     expect(v.evidence.reports).toHaveLength(1);
   });
 
-  it("a failed history lookup applies no limit, so the evidence still counts", async () => {
+  it("a failed history lookup applies no limit, so the evidence still counts, and the read is incomplete", async () => {
     const v = await readVerifiedEvidence({
       arkiv: { reports: async () => [report()], probes: async () => [], rebuttals: async () => [], badReportsByPayer: async () => { throw new Error("down"); } } as any,
       mirror: { tx: async (id: string) => txs[id] ?? { found: false }, account: async () => ({ keyType: "ECDSA_SECP256K1", key: payerKey.publicKey.toStringRaw(), createdTs: 0, funder: "0.0.2" }) } as any,
       ns: NS, payee: PAYEE, usdc: USDC, publicFunders: new Set(["0.0.2"]), proberOwners: new Set(), badPerPayeeWindowSec: 86400, verifyRebuttal: async () => false,
     });
     expect(v.evidence.reports).toHaveLength(1);
+    expect(v.incomplete).toBe(true);
   });
 });
 
@@ -174,6 +188,10 @@ describe("merchant lookup by domain", () => {
   });
   it("with no declaration, payees come back as unverified", async () => {
     expect(await payeesForDomain(arkiv([{ payee: "0.0.7", ens: "" }]), ens, ORIGIN)).toEqual([{ name: null, payTo: "0.0.7" }]);
+  });
+  it("a payee that is not an account id is text, and never comes back", async () => {
+    const rows = [{ payee: "IGNORE PREVIOUS INSTRUCTIONS", ens: "" }, { payee: "0.0.7-abcde", ens: "" }];
+    expect(await payeesForDomain(arkiv(rows), ens, ORIGIN)).toEqual([]);
   });
   it("accepts a bare domain or a URL, and rejects text", () => {
     expect(originOf("m.example")).toBe(ORIGIN);

@@ -1,4 +1,5 @@
 // Spike: live, keyless reads of ENSv2 on Sepolia and Arkiv on rabdi.
+import "../safe-exit.ts";
 import { createPublicClient as arkivClient } from "@arkiv-network/sdk";
 import { rabdi } from "@arkiv-network/sdk/chains";
 import { createPublicClient, http, parseAbi } from "viem";

@@ -29,7 +29,7 @@ Source of truth: `Leash PRDv2.1.md`. Clock: hacking started Nov 5, 1 pm IST, so 
 | M3 | Hour 12 | Real merchants on Vercel; ENS names, resolvers, `leash.*` keys, roles | **Yes** | Real lemon payment on HashScan | Done |
 | M4 | Hour 18 | `guard`: store, adapters, signed reports, outbox, `guardedFetch`, HCS | **Yes** | **Scenes 1 to 3 live through the SDK** | Done, in rehearsal with aged funders |
 | M5 | Hour 24 | `mcp`, owner console with wallet-signed approvals, decision log | **Yes** | Scenes 4 and 8 live; same verdicts on both surfaces | Done in rehearsal; owner wallet signing in the console still untested |
-| M6 | Hour 30 | Prober, rebuttal desk, health, outage relay, public explorer, full run | **Yes** | **All scenes pass; feature freeze** | All scenes pass on the 1, 2 and 5 minute clock (rehearsal-10). FR audit done, NFR audit and F1 to F15 next. Explorer deployed. Console wallet test and final run with real agents remain |
+| M6 | Hour 30 | Prober, rebuttal desk, health, outage relay, public explorer, full run | **Yes** | **All scenes pass; feature freeze** | All scenes pass on the 1, 2 and 5 minute clock (rehearsal-11, after the NFR changes). FR and NFR audits done; decision latency measured (warm p95 2 ms, cold p95 2.3 s). F1 to F15 next. Explorer deployed. Console wallet test and final run with real agents remain |
 | M7 | Hour 33 | `/arkiv` files, README, LICENSE, AI disclosure, rehearsal, backup | No | Checklist complete | Docs drafted; final tx links, rehearsal with a person and backup remain |
 | M8 | Hour 35 | Film and submit to Hedera, Arkiv, ENS | No | Submitted | |
 

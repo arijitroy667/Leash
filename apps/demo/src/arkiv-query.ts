@@ -1,5 +1,6 @@
 // The registry is public: this reads it with no key and no wallet.
 //   npx tsx apps/demo/src/arkiv-query.ts mumbai-prod 0.0.11323813
+import "./safe-exit.ts";
 import { createPublicClient } from "@arkiv-network/sdk";
 import { rabdi } from "@arkiv-network/sdk/chains";
 import { and, desc, eq } from "@arkiv-network/sdk/query";

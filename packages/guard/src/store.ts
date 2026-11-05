@@ -5,6 +5,7 @@ import type { Decision, StandingView } from "@leash/core";
 
 const DAY = 86400;
 const HEALTHY_READS_TO_RECOVER = 3;
+export const DECISION_RETENTION_SEC = 30 * DAY;
 
 export interface Approval {
   id: string;
@@ -61,6 +62,8 @@ export class Store {
     } catch {
       /* already there */
     }
+    // Decisions are kept 30 days (PRD section 16). HCS holds the permanent record.
+    this.db.prepare("DELETE FROM decisions WHERE at<?").run(Date.now() / 1000 - DECISION_RETENTION_SEC);
   }
 
   saveDecision(agent: string, d: Decision) {
@@ -177,8 +180,12 @@ export class Store {
   enqueue(kind: string, dedupe: string, payload: unknown) {
     this.db.prepare("INSERT OR IGNORE INTO outbox (dedupe, kind, payload) VALUES (?,?,?)").run(dedupe, kind, JSON.stringify(payload));
   }
-  dueOutbox(now: number, limit = 10): OutboxItem[] {
-    const rows = this.db.prepare("SELECT id, kind, payload, attempts FROM outbox WHERE done=0 AND next_at<=? ORDER BY id LIMIT ?").all(now, limit) as any[];
+  /**
+   * Due items this caller can deliver: audit messages from anyone, and only its own reports, since each is signed by
+   * its payer. Filtering here, not after, means another agent's backlog can never starve this one.
+   */
+  dueOutbox(now: number, limit = 10, agent = ""): OutboxItem[] {
+    const rows = this.db.prepare("SELECT id, kind, payload, attempts FROM outbox WHERE done=0 AND next_at<=? AND (kind='hcs' OR json_extract(payload, '$.agent')=?) ORDER BY id LIMIT ?").all(now, agent, limit) as any[];
     return rows.map((r) => ({ ...r, payload: JSON.parse(r.payload) }));
   }
   /** Atomic across guards and processes, so an item is never delivered twice at once. */

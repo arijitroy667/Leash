@@ -1,4 +1,5 @@
 // Read-only readiness report against live networks. Prints no secrets.
+import "../safe-exit.ts";
 import "dotenv/config";
 import { createPublicClient, formatEther, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";

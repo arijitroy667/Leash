@@ -1,5 +1,6 @@
 // Builds a real guarded agent from .env, and a small CLI for one paid call.
 //   tsx apps/demo/src/agent.ts A https://merchant.example/forecast
+import "./safe-exit.ts";
 import "dotenv/config";
 import { fileURLToPath } from "node:url";
 import { buildAgent, LeashDenied, LeashEscalated, toMirrorTxId } from "@leash/guard";

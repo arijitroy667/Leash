@@ -105,6 +105,10 @@ export const DEFAULT_LIMITS = {
 export const SOFT_CAPS = { NEW: 0.05, ESTABLISHED: 1.0, PROBATION: 0.1 } as const;
 export const HARD_CAP_MULTIPLE = 5;
 
+/** NFR-08: the most one probe may cost, and the prober's spend limit per UTC day. */
+export const PROBE_USD = 0.01;
+export const PROBE_BUDGET_PER_DAY = 0.5;
+
 /** G5: bad reports one reporter may file in a rolling real day, across all payees. Not shortened by the live profile. */
 export const REPORTER_BAD_PER_DAY = 5;
 export const REPORTER_DAY_SEC = DAY;

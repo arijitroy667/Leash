@@ -2,6 +2,7 @@
 // what it needs to be visible on Hedera and Arkiv, never for a fixed time.
 //   tsx apps/demo/src/show.ts 1        one scene
 //   tsx apps/demo/src/show.ts all      scenes in order
+import "./safe-exit.ts";
 import "dotenv/config";
 import { spawn, type ChildProcess } from "node:child_process";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -103,14 +104,12 @@ async function waitFor(name: string, want: string, timeoutMs = 200_000) {
 }
 
 const LEMON = () => env.ENS_NAME_LEMON!;
-const run = (args: string[]) => new Promise<void>((done) => {
+const run = (args: string[]) => new Promise<void>((done, fail) => {
   const p = spawn(process.execPath, ["--import", "tsx", ...args], { stdio: ["ignore", "inherit", "pipe"], env: { ...process.env, ARKIV_RPC_URL: "" } });
   let err = "";
   p.stderr!.on("data", (d) => (err += d));
-  p.on("exit", (code) => {
-    if (code) throw new Error(`${args[0]} failed: ${err.slice(-600)}`);
-    done();
-  });
+  // The child's stderr can quote an RPC url with its key, so it is cleaned before it goes anywhere.
+  p.on("exit", (code) => (code ? fail(new Error(`${args[0]} failed: ${safeError(err.slice(-600))}`)) : done()));
 });
 let relay: ChildProcess | undefined;
 if (env.SHOW_RELAY) {

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { DEFAULT_LIMITS, policySummary } from "@leash/core";
+import { DEFAULT_LIMITS, PROBE_BUDGET_PER_DAY, policySummary } from "@leash/core";
 import { approvalMessage, safeError, type Store } from "@leash/guard";
 import { PUBLIC_MODE, knownMerchants, merchantRow, reader } from "../../../lib/server";
 
@@ -27,7 +27,11 @@ export async function GET() {
   r.store.expireApprovals(now);
   checkFacilitator(r.store, now);
   const merchants = await Promise.all(knownMerchants().map((m) => merchantRow(m.name ?? m.payTo!, m.payTo)));
+  const lat = r.store.recentDecisions(200).map((d) => d.latencyMs).filter((x): x is number => typeof x === "number").sort((a, b) => a - b);
+  const pct = (p: number) => lat[Math.max(0, Math.ceil(p * lat.length) - 1)] ?? null;
   return NextResponse.json({
+    latency: { p50: pct(0.5), p95: pct(0.95), n: lat.length },
+    probeSpend: { today: r.store.probeSpent(new Date().toISOString().slice(0, 10)), budget: PROBE_BUDGET_PER_DAY },
     now,
     profile: r.params.name,
     policyNote: policySummary(r.params),

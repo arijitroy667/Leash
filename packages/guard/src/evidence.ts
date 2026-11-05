@@ -3,7 +3,7 @@ import { parseAbi, verifyMessage, keccak256, toBytes, type PublicClient } from "
 import { normalize } from "viem/ens";
 import { REPORTER_BAD_PER_DAY, reporterExcess, type Evidence, type Report } from "@leash/core";
 import type { Arkiv, ProbeRow, RebuttalRow, ReportRow } from "./arkiv.ts";
-import { validName, type Ens } from "./ens.ts";
+import { validAccount, validName, type Ens } from "./ens.ts";
 import { verifyHederaSignature, type Mirror, type TxFacts } from "./mirror.ts";
 
 export const reportMessage = (r: { ns: string; txId: string; payee: string; outcome: string; amountMicroUsd: number; owner: string }) =>
@@ -35,8 +35,10 @@ export async function holdsRebuttalRole(client: PublicClient, resolver: `0x${str
 
 export interface VerifiedEvidence {
   evidence: Evidence;
-  unverifiedBadClusters: number;
-  /** A row could not be checked because Mirror Node was down, so this read must not be cached as the truth. */
+  /**
+   * A row could not be checked because Mirror Node, Arkiv or Sepolia failed. This read must not be cached as the
+   * truth, and the guard escalates on it rather than allowing.
+   */
   incomplete: boolean;
   rows: { reports: (ReportRow & { valid: boolean; why?: string })[]; probes: ProbeRow[]; rebuttals: RebuttalRow[] };
 }
@@ -46,14 +48,24 @@ export const digest = (s: string) => createHash("sha256").update(s).digest("hex"
 type Account = NonNullable<Awaited<ReturnType<Mirror["account"]>>>;
 type Checked = { why: string; mirrorDown?: boolean } | { facts: TxFacts; acct: Account };
 
+/** A Hedera transaction id as the SDK writes it. Anything else is junk, and never costs a Mirror call. */
+const TX_ID = /^0\.0\.\d{1,12}@\d{1,12}\.\d{1,9}$/;
+
+/** Runs f on each item, a few at a time: one by one is too slow for a cold read, all at once trips Mirror's rate limit. */
+async function inBatches<T, R>(xs: T[], f: (x: T) => Promise<R>, size = 8): Promise<R[]> {
+  const out: R[] = [];
+  for (let i = 0; i < xs.length; i += size) out.push(...(await Promise.all(xs.slice(i, i + size).map(f))));
+  return out;
+}
+
 /** One report against Mirror Node and the payer's key. Consensus time comes from Mirror, and any mismatch drops the row. */
 async function checkReport(r: ReportRow, mirror: Mirror, ns: string, usdc: string): Promise<Checked> {
   if (r.v !== 1) return { why: "unknown version" };
+  if (!TX_ID.test(r.txId) || !validAccount(r.payer) || !validAccount(r.payee)) return { why: "malformed row" };
   let facts: TxFacts;
   let acct: Awaited<ReturnType<Mirror["account"]>>;
   try {
-    facts = await mirror.tx(r.txId);
-    acct = await mirror.account(r.payer);
+    [facts, acct] = await Promise.all([mirror.tx(r.txId), mirror.account(r.payer)]);
   } catch {
     return { why: "mirror unavailable", mirrorDown: true };
   }
@@ -86,17 +98,22 @@ export async function readVerifiedEvidence(opts: {
   const [rawReports, rawProbes, rawRebuttals] = await Promise.all([arkiv.reports(payee), arkiv.probes(payee), arkiv.rebuttals(payee)]);
 
   let reports: Report[] = [];
-  const unverified = new Set<string>();
   let incomplete = false;
   const rows: VerifiedEvidence["rows"] = { reports: [], probes: [], rebuttals: [] };
 
-  for (const r of rawReports) {
-    const c = await checkReport(r, mirror, ns, usdc);
+  // All checks at once, in batches: a cold read would otherwise wait on Mirror once per row (NFR-01).
+  const ours = rawProbes.filter((p) => opts.proberOwners.has(p.owner.toLowerCase()) && TX_ID.test(p.txId));
+  const [checks, probeFacts, rebuttalChecks] = await Promise.all([
+    inBatches(rawReports, (r) => checkReport(r, mirror, ns, usdc)),
+    inBatches(ours, (p) => mirror.tx(p.txId).catch(() => null)),
+    // A check that fails is not a rebuttal that fails: missing the first one could let a second one count.
+    inBatches(rawRebuttals, (r) => opts.verifyRebuttal(r).catch(() => null)),
+  ]);
+
+  for (const [i, r] of rawReports.entries()) {
+    const c = checks[i]!;
     if ("why" in c) {
-      if (c.mirrorDown) {
-        incomplete = true;
-        if (r.outcome === "bad") unverified.add(r.payer);
-      }
+      if (c.mirrorDown) incomplete = true;
       rows.reports.push({ ...r, valid: false, why: c.why });
       continue;
     }
@@ -112,15 +129,20 @@ export async function readVerifiedEvidence(opts: {
     });
   }
 
-  // G5 across payees. A failed lookup applies no limit, which keeps the evidence and so can only be stricter.
+  // G5 across payees. A failed lookup applies no limit, so the evidence is kept, and the read is marked incomplete.
   const badPayers = [...new Set(reports.filter((r) => r.outcome === "bad").map((r) => r.payer))];
   const excessByPayer = await Promise.all(badPayers.map(async (payer) => {
-    const history = await arkiv.badReportsByPayer(payer).catch(() => [] as ReportRow[]);
+    const history = await arkiv.badReportsByPayer(payer).catch(() => {
+      incomplete = true;
+      return [] as ReportRow[];
+    });
     if (history.length <= REPORTER_BAD_PER_DAY) return new Set<string>();
     const verified: { txId: string; ts: number; payee: string }[] = [];
-    for (const h of history) {
-      const c = await checkReport(h, mirror, ns, usdc);
+    const past = await inBatches(history, (h) => checkReport(h, mirror, ns, usdc));
+    for (const [i, h] of history.entries()) {
+      const c = past[i]!;
       if (!("why" in c)) verified.push({ txId: h.txId, ts: c.facts.consensusTs!, payee: h.payee });
+      else if (c.mirrorDown) incomplete = true;
     }
     return reporterExcess(verified, opts.badPerPayeeWindowSec);
   }));
@@ -133,14 +155,10 @@ export async function readVerifiedEvidence(opts: {
   }
 
   const probes: Evidence["probes"] = [];
-  for (const p of rawProbes) {
-    if (!opts.proberOwners.has(p.owner.toLowerCase())) continue;
-    let facts: TxFacts;
-    try {
-      facts = await mirror.tx(p.txId);
-    } catch {
+  for (const [i, p] of ours.entries()) {
+    const facts = probeFacts[i];
+    if (!facts) {
       incomplete = true;
-      if (p.result === "fail") unverified.add("prober");
       continue;
     }
     if (!facts.success || facts.payee !== p.payee || facts.token !== usdc) continue;
@@ -151,14 +169,15 @@ export async function readVerifiedEvidence(opts: {
   }
 
   const rebuttals: Evidence["rebuttals"] = [];
-  for (const r of rawRebuttals) {
-    if (await opts.verifyRebuttal(r).catch(() => false)) {
+  for (const [i, r] of rawRebuttals.entries()) {
+    if (rebuttalChecks[i] === null) incomplete = true;
+    else if (rebuttalChecks[i]) {
       rebuttals.push({ ts: r.filedAt });
       rows.rebuttals.push(r);
     }
   }
 
-  return { evidence: { reports, probes, rebuttals }, unverifiedBadClusters: unverified.size, incomplete, rows };
+  return { evidence: { reports, probes, rebuttals }, incomplete, rows };
 }
 
 export const verifyRebuttalSignature = (ns: string, r: RebuttalRow) =>
@@ -188,7 +207,8 @@ export const originOf = (s: string): string | null => {
  * nothing: a name whose ENS declaration lists this origin and payee wins, and anything else is an unverified claim.
  */
 export async function payeesForDomain(arkiv: Arkiv, ens: Ens, origin: string): Promise<{ name: string | null; payTo: string }[]> {
-  const rows = await arkiv.reportsByDomain(origin);
+  // Anyone can write a row, so a payee that is not an account id is text, and never comes back.
+  const rows = (await arkiv.reportsByDomain(origin)).filter((r) => validAccount(r.payee));
   const seen = [...new Map(rows.map((r) => [`${r.payee}|${r.ens}`, r])).values()];
   const declared: { name: string; payTo: string }[] = [];
   for (const r of seen) {

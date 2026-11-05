@@ -1,6 +1,7 @@
 // Splits tGLM from whichever wallet holds the most, so the faucet only has to fund one address.
 // Also writes AGENT_F1 and AGENT_F2: the aged funder accounts, used to rehearse a real block before
 // the agents turn 24 hours old. Prints no secrets.
+import "../safe-exit.ts";
 import "dotenv/config";
 import { appendFileSync } from "node:fs";
 import { createPublicClient, createWalletClient } from "@arkiv-network/sdk";

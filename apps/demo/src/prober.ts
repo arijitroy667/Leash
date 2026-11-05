@@ -4,21 +4,19 @@ import "dotenv/config";
 import { fileURLToPath } from "node:url";
 import { wrapFetchWithPayment } from "@x402/fetch";
 import { Transaction } from "@hiero-ledger/sdk";
-import type { StandingView } from "@leash/core";
+import { PROBE_BUDGET_PER_DAY, PROBE_USD, type StandingView } from "@leash/core";
 import { buildReader, deliveryCheck, digest, rawClient, safeError } from "@leash/guard";
 
 const env = process.env;
 const hex = (k: string) => (k.startsWith("0x") ? k : `0x${k}`) as `0x${string}`;
 export { buildReader };
-const PROBE_USD = 0.01;
-const BUDGET_PER_DAY = 0.5;
 
 export async function probeOnce(reader: ReturnType<typeof buildReader>, ens: string) {
   const account = env.PROBER_ACCOUNT;
   const key = env.PROBER_KEY;
   if (!account || !key) throw new Error("PROBER is missing. Run pnpm wallets:create");
   const day = new Date().toISOString().slice(0, 10);
-  if (reader.store.probeSpent(day) + PROBE_USD > BUDGET_PER_DAY) return { skipped: "budget" as const };
+  if (reader.store.probeSpent(day) + PROBE_USD > PROBE_BUDGET_PER_DAY) return { skipped: "budget" as const };
 
   const decl = await reader.ens.fetch(ens);
   if (!decl?.probeUrl) return { skipped: "no-probe-url" as const };

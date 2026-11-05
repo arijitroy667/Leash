@@ -17,7 +17,10 @@ export interface DecideInput {
   challengeState: { receivedAt: number; paidAt: number | null };
   idempotent?: boolean;
   escalationsLastHour: number;
-  unverifiedBadClusters?: number;
+  /** Mirror Node could not check some of the evidence, so the view may be missing a report. */
+  unverifiedEvidence?: boolean;
+  /** The 402 named a payTo or amount that is not a plain account id or whole number. */
+  malformedChallenge?: boolean;
   safeMode?: boolean;
   familyTaint?: boolean;
   /** A payment for this challenge may still have settled, and Mirror Node cannot say. */
@@ -43,7 +46,8 @@ export function decide(i: DecideInput): Decision {
   const A = c.amountUsd;
 
   // Hard global rules
-  if (A > limits.perCallCeiling) deny.add("ceiling-exceeded");
+  if (!(A <= limits.perCallCeiling)) deny.add("ceiling-exceeded"); // written so that NaN is refused too
+  if (i.malformedChallenge) deny.add("malformed-challenge");
   if (!limits.allowedAssets.includes(c.asset)) deny.add("unsupported-asset");
   const paidAt = i.challengeState.paidAt;
   if (paidAt !== null && now - paidAt <= limits.replayWindowSec && !i.idempotent) deny.add("replay");
@@ -86,6 +90,7 @@ export function decide(i: DecideInput): Decision {
     esc.add("registry-unavailable");
     degraded ??= { dependency: "arkiv", staleSec: 0 };
   }
+  if (i.unverifiedEvidence) degraded ??= { dependency: "mirror", staleSec: 0 };
 
   // Standing
   let standing: Standing;
@@ -121,7 +126,9 @@ export function decide(i: DecideInput): Decision {
     else if (R >= limits.allowThreshold) esc.add("risk-band");
   }
 
-  if ((i.unverifiedBadClusters ?? 0) >= 2) esc.add("unverified-reports");
+  // A report Mirror could not check may be the one that matters: one bad report on a NEW merchant escalates (S4).
+  // So the guard asks instead of allowing. Unverified evidence is never a DENY.
+  if (i.unverifiedEvidence) esc.add("unverified-reports");
   if (i.safeMode) esc.add("safe-mode");
   if (i.settlementUnknown) esc.add("settlement-unknown");
   if (i.locallyBlocked) deny.add("locally-blocked");

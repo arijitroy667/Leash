@@ -1,14 +1,18 @@
 import { NextResponse } from "next/server";
 import { normalize } from "viem/ens";
-import { REBUTTAL_REASONS, digest, holdsRebuttalRole, rebuttalMessage, verifyRebuttalSignature } from "@leash/guard";
+import { REBUTTAL_REASONS, digest, holdsRebuttalRole, rebuttalMessage, safeError, verifyRebuttalSignature } from "@leash/guard";
 import { PUBLIC_MODE, reader } from "../../../lib/server";
 
 const hex = (k: string) => (k.startsWith("0x") ? k : `0x${k}`) as `0x${string}`;
+/** A network error quotes its RPC url, which can carry a key, so it is cleaned here rather than thrown to the server log. */
+const failed = (e: unknown) => NextResponse.json({ error: safeError(e) }, { status: 502 });
+export const POST = (req: Request) => file(req).catch(failed);
+export const GET = (req: Request) => message(req).catch(failed);
 /** Only the hash is ever stored: a rebuttal shows others a reason code and a time, never free text. */
 const evidenceHash = (reason: string, filedAt: number, evidence?: string | null) => digest(evidence?.trim().slice(0, 500) || `${reason}:${filedAt}`);
 
 /** Filed by the holder of the merchant's leash.rebuttal role. It only queues a probe; it never unblocks. */
-export async function POST(req: Request) {
+async function file(req: Request) {
   if (PUBLIC_MODE) return NextResponse.json({ error: "rebuttal desk is not public" }, { status: 403 });
   const b = (await req.json()) as { ens: string; reason: string; filedAt: number; signer: `0x${string}`; signature: string; evidence?: string };
   if (!REBUTTAL_REASONS.includes(b.reason as never)) return NextResponse.json({ error: "unknown reason" }, { status: 400 });
@@ -31,7 +35,7 @@ export async function POST(req: Request) {
 }
 
 /** The exact text the wallet must sign. */
-export async function GET(req: Request) {
+async function message(req: Request) {
   if (PUBLIC_MODE) return NextResponse.json({ error: "rebuttal desk is not public" }, { status: 403 });
   const u = new URL(req.url);
   const ens = u.searchParams.get("ens") ?? "";

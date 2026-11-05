@@ -38,9 +38,11 @@ export class Mirror {
     const now = Date.now() / 1000;
     try {
       const r = await fetch(`${this.base}/api/v1${path}`, { signal: AbortSignal.timeout(this.timeoutMs) });
-      if (r.status !== 404 && !r.ok) throw new Error(`mirror ${r.status}`);
+      // 400 is Mirror refusing a malformed id. That is "no such thing", not an outage, or one junk row could fake one.
+      const missing = r.status === 404 || r.status === 400;
+      if (!missing && !r.ok) throw new Error(`mirror ${r.status}`);
       this.store.setHealth("mirror", true, now);
-      return r.status === 404 ? null : r.json();
+      return missing ? null : r.json();
     } catch (e) {
       this.store.setHealth("mirror", false, now, safeError(e));
       throw e;

@@ -1,12 +1,16 @@
 export type Standing = "UNKNOWN" | "NEW" | "ESTABLISHED" | "BLOCKED" | "PROBATION";
 export type Verdict = "ALLOW" | "ESCALATE" | "DENY";
 
-export type ReasonCode =
-  | "ceiling-exceeded" | "declared-mismatch" | "over-declared-max" | "replay" | "stale-challenge"
-  | "blocked" | "merchant-cap-hard" | "budget-exceeded" | "escalation-rate-limit" | "risk-band"
-  | "unsupported-asset" | "unknown-merchant" | "unknown-origin" | "limit-exceeded" | "merchant-cap"
-  | "new-identity-budget" | "price-drift" | "probation-limit" | "probation-hold" | "registry-unavailable"
-  | "declared-stale-mismatch" | "unverified-reports" | "safe-mode" | "settlement-unknown" | "locally-blocked";
+/** Every reason a decision can give. The core tests check that each one has a case that produces it. */
+export const REASON_CODES = [
+  "ceiling-exceeded", "declared-mismatch", "over-declared-max", "replay", "stale-challenge",
+  "blocked", "merchant-cap-hard", "budget-exceeded", "escalation-rate-limit", "risk-band",
+  "unsupported-asset", "unknown-merchant", "unknown-origin", "limit-exceeded", "merchant-cap",
+  "new-identity-budget", "price-drift", "probation-limit", "probation-hold", "registry-unavailable",
+  "declared-stale-mismatch", "unverified-reports", "safe-mode", "settlement-unknown", "locally-blocked",
+  "malformed-challenge",
+] as const;
+export type ReasonCode = (typeof REASON_CODES)[number];
 
 /** A report already verified by the reader against Mirror Node and the payer's key. */
 export interface Report {
@@ -108,4 +112,6 @@ export interface Decision {
   amountUsd: number;
   degraded?: { dependency: string; staleSec: number };
   at: number;
+  /** Set by the guard: milliseconds it spent deciding. */
+  latencyMs?: number;
 }

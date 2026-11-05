@@ -1,5 +1,6 @@
 // Registers real ENSv2 names on Sepolia, deploys one Permissioned Resolver per merchant,
 // sets leash.* records and grants key-scoped roles. Idempotent: rerun it after merchant URLs change.
+import "../safe-exit.ts";
 import "dotenv/config";
 import { appendFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";

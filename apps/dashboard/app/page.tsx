@@ -172,6 +172,10 @@ export default function Console() {
           <p className="muted" style={{ marginBottom: 0 }}>
             Outbox {s.outbox.depth} queued{s.topic && <> · <a href={`https://hashscan.io/testnet/topic/${s.topic}`}>HCS audit topic {s.topic}</a></>}
           </p>
+          <p className="muted" style={{ marginBottom: 0 }}>
+            Decision latency {s.latency.n ? `p50 ${s.latency.p50} ms, p95 ${s.latency.p95} ms over the last ${s.latency.n}` : "not measured yet"}
+            {" · "}Probe spend today {usd(s.probeSpend.today)} of {usd(s.probeSpend.budget)}
+          </p>
         </section>
 
         <RebuttalDesk merchants={s.merchants} onDone={load} />

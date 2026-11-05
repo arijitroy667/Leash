@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import fc from "fast-check";
 import fixtures from "./fixtures.json" with { type: "json" };
 import {
-  DEFAULT_LIMITS, PROFILES, autoLimit, blockLength, challengeHash, decide, liveProfile, policySummary, replay, reporterExcess, riskScore,
-  type Challenge, type Declaration, type DecideInput, type Evidence, type Report, type Standing, type StandingView,
+  DEFAULT_LIMITS, PROFILES, REASON_CODES, autoLimit, blockLength, challengeHash, decide, liveProfile, policySummary, replay, reporterExcess, riskScore,
+  type Challenge, type Declaration, type DecideInput, type Evidence, type ReasonCode, type Report, type Standing, type StandingView,
 } from "../src/index.ts";
 
 const P = PROFILES.production;
@@ -493,6 +493,45 @@ describe("decide", () => {
     expect(d.reasons).toEqual([]);
   });
   it("ceiling", () => expect(reason({ challenge: challenge(1.5) }).reasons).toContain("ceiling-exceeded"));
+  it("an amount that is not a number is refused, never allowed", () => {
+    const d = reason({ challenge: challenge(Number.NaN) });
+    expect(d.verdict).toBe("DENY");
+    expect(d.reasons).toContain("ceiling-exceeded");
+  });
+  it("every reason code has a case that produces it", () => {
+    const led = (o: Partial<DecideInput["ledger"]>) => ({ merchantSpent24h: 0, sessionSpent: 0, dailySpent: 0, newIdentitySpentToday: 0, recentPrices: [] as number[], ...o });
+    const probation = viewOf({ standing: "PROBATION", strikes: 1, D: 1, g: 5, computedAt: 1000, probationStart: 1 });
+    const cases: Record<ReasonCode, Partial<DecideInput>> = {
+      "ceiling-exceeded": { challenge: challenge(1.5) },
+      "declared-mismatch": { challenge: challenge(0.005, { payTo: "0.0.999" }) },
+      "over-declared-max": { declaration: { status: "fresh", value: { ...decl, maxPriceUsd: 0.001 } } },
+      replay: { challengeState: { receivedAt: 1000, paidAt: 900 } },
+      "stale-challenge": { challengeState: { receivedAt: 900, paidAt: null } },
+      blocked: { registry: { status: "fresh", view: viewOf({ standing: "BLOCKED", blockEnd: 5000, computedAt: 1000 }) } },
+      "merchant-cap-hard": { ledger: led({ merchantSpent24h: 0.25 }) },
+      "budget-exceeded": { ledger: led({ sessionSpent: 2 }) },
+      "escalation-rate-limit": { escalationsLastHour: 10, challenge: challenge(0.05) },
+      "risk-band": { challenge: challenge(0.05), registry: { status: "fresh", view: viewOf({ b: 1, bScore: 1, L: 0.5, badClusters: 2, computedAt: 1000 }) } },
+      "unsupported-asset": { challenge: challenge(0.005, { asset: "0.0.1" }) },
+      "unknown-merchant": { claim: null, declaration: { status: "none" } },
+      "unknown-origin": { realOrigin: null },
+      "limit-exceeded": { challenge: challenge(0.05) },
+      "merchant-cap": { ledger: led({ merchantSpent24h: 0.05 }) },
+      "new-identity-budget": { ledger: led({ newIdentitySpentToday: 0.1 }) },
+      "price-drift": { ledger: led({ recentPrices: [0.001, 0.001] }) },
+      "probation-limit": { challenge: challenge(0.2), registry: { status: "fresh", view: probation } },
+      "probation-hold": { registry: { status: "fresh", view: { ...probation, holdUntil: 2000 } } },
+      "registry-unavailable": { registry: { status: "none" } },
+      "declared-stale-mismatch": { declaration: { status: "stale", value: { ...decl, payTo: "0.0.1" }, fetchedAt: 900 } },
+      "unverified-reports": { unverifiedEvidence: true },
+      "safe-mode": { safeMode: true },
+      "settlement-unknown": { settlementUnknown: true },
+      "locally-blocked": { locallyBlocked: true },
+      "malformed-challenge": { malformedChallenge: true },
+    };
+    expect(Object.keys(cases).sort()).toEqual([...REASON_CODES].sort());
+    for (const [code, o] of Object.entries(cases)) expect(reason(o).reasons, code).toContain(code);
+  });
   it("spoofed payTo", () => {
     const d = reason({ challenge: challenge(0.005, { payTo: "0.0.999" }) });
     expect(d.verdict).toBe("DENY");
@@ -578,8 +617,12 @@ describe("decide", () => {
     it("ENS down with no cache is unknown", () => {
       expect(reason({ declaration: { status: "none", outage: true } }).reasons).toContain("unknown-merchant");
     });
-    it("unverified bad clusters escalate", () => {
-      expect(reason({ unverifiedBadClusters: 2 }).reasons).toContain("unverified-reports");
+    it("evidence Mirror could not check escalates, even where the score alone would allow, and never denies", () => {
+      const d = reason({ unverifiedEvidence: true });
+      expect(reason({}).verdict).toBe("ALLOW");
+      expect(d.verdict).toBe("ESCALATE");
+      expect(d.reasons).toEqual(["unverified-reports"]);
+      expect(d.degraded?.dependency).toBe("mirror");
     });
     it("safe mode escalates, cached block still denies", () => {
       expect(reason({ safeMode: true }).verdict).toBe("ESCALATE");
@@ -648,11 +691,11 @@ describe("properties", () => {
   }, 300_000);
 
   it("the verdict is the most restrictive gate, whatever combination fires", () => {
-    const DENY_ONLY = new Set(["ceiling-exceeded", "unsupported-asset", "declared-mismatch", "over-declared-max", "replay", "stale-challenge", "blocked", "merchant-cap-hard", "budget-exceeded", "escalation-rate-limit", "locally-blocked"]);
+    const DENY_ONLY = new Set(["ceiling-exceeded", "unsupported-asset", "declared-mismatch", "over-declared-max", "replay", "stale-challenge", "blocked", "merchant-cap-hard", "budget-exceeded", "escalation-rate-limit", "locally-blocked", "malformed-challenge"]);
     const gates = fc.record({
       A: fc.double({ min: 0.001, max: 2, noNaN: true }),
       spoof: fc.boolean(), badAsset: fc.boolean(), replayed: fc.boolean(), stale: fc.boolean(), noClaim: fc.boolean(), noOrigin: fc.boolean(), registryDown: fc.boolean(),
-      blocked: fc.boolean(), safeMode: fc.boolean(), unknownSettlement: fc.boolean(), localBlock: fc.boolean(), spent: fc.double({ min: 0, max: 3, noNaN: true }), escalations: fc.integer({ min: 0, max: 12 }), unverified: fc.integer({ min: 0, max: 3 }),
+      blocked: fc.boolean(), safeMode: fc.boolean(), unknownSettlement: fc.boolean(), localBlock: fc.boolean(), spent: fc.double({ min: 0, max: 3, noNaN: true }), escalations: fc.integer({ min: 0, max: 12 }), unverified: fc.boolean(), malformed: fc.boolean(),
     });
     fc.assert(fc.property(gates, (g) => {
       const view = viewOf({ standing: g.blocked ? "BLOCKED" : "NEW", blockEnd: g.blocked ? 5000 : null, computedAt: 1000 });
@@ -664,14 +707,15 @@ describe("properties", () => {
         registry: g.registryDown ? { status: "none" } : { status: "fresh", view },
         ledger: { merchantSpent24h: g.spent, sessionSpent: g.spent, dailySpent: g.spent, newIdentitySpentToday: g.spent, recentPrices: [] },
         challengeState: { receivedAt: g.stale ? 900 : 1000, paidAt: g.replayed ? 990 : null },
-        escalationsLastHour: g.escalations, unverifiedBadClusters: g.unverified, safeMode: g.safeMode, settlementUnknown: g.unknownSettlement, locallyBlocked: g.localBlock,
+        escalationsLastHour: g.escalations, unverifiedEvidence: g.unverified, malformedChallenge: g.malformed, safeMode: g.safeMode, settlementUnknown: g.unknownSettlement, locallyBlocked: g.localBlock,
       });
       const d = decide(i);
       expect(decide(i)).toEqual(d);
       if (d.reasons.some((r) => DENY_ONLY.has(r))) expect(d.verdict).toBe("DENY");
       if (d.reasons.length === 0) expect(d.verdict).toBe("ALLOW");
       else expect(d.verdict).not.toBe("ALLOW");
-      if (g.safeMode || g.registryDown || g.noClaim) expect(d.verdict).not.toBe("ALLOW"); // an outage or no declaration is never a silent ALLOW
+      // An outage, unchecked evidence or no declaration is never a silent ALLOW (NFR-03)
+      if (g.safeMode || g.registryDown || g.noClaim || g.unverified) expect(d.verdict).not.toBe("ALLOW");
     }), n);
   }, 300_000);
 });

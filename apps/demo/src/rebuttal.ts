@@ -1,5 +1,6 @@
 // Files a real signed rebuttal. Usage: tsx apps/demo/src/rebuttal.ts <role|norole> [reason] [evidence url or hash]
 // "norole" signs with a fresh wallet holding no ENS role, to show the check rejects it.
+import "./safe-exit.ts";
 import "dotenv/config";
 import { bytesToHex, createWalletClient, http, parseAbi } from "viem";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
