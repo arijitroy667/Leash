@@ -8,8 +8,8 @@ describe("MCP hardening", () => {
   it("has no tool that can approve", () => {
     const tools = [...src.matchAll(/registerTool\("([a-z_]+)"/g)].map((m) => m[1]);
     expect(tools).toEqual([
-      "herd_pay_request", "herd_check_merchant", "herd_explain_decision", "herd_report_outcome",
-      "herd_list_pending_approvals", "herd_await_approval", "herd_get_budget",
+      "leash_pay_request", "leash_check_merchant", "leash_explain_decision", "leash_report_outcome",
+      "leash_list_pending_approvals", "leash_await_approval", "leash_get_budget",
     ]);
     expect(src).not.toMatch(/resolveApproval/);
   });

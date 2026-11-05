@@ -5,7 +5,7 @@ import { bytes, defineSchema, i32, str, u64 } from "@arkiv-network/sdk/schema";
 import { hexToBytes, http } from "viem";
 import { privateKeyToAccount } from "viem/accounts";
 
-export const ReportSchema = defineSchema("herd.report", {
+export const ReportSchema = defineSchema("leash.report", {
   ns: str().indexed(),
   payee: str().indexed(),
   domain: str(),
@@ -20,7 +20,7 @@ export const ReportSchema = defineSchema("herd.report", {
   v: i32(),
 });
 
-export const RebuttalSchema = defineSchema("herd.rebuttal", {
+export const RebuttalSchema = defineSchema("leash.rebuttal", {
   ns: str().indexed(),
   payee: str().indexed(),
   ens: str().indexed(),
@@ -33,7 +33,7 @@ export const RebuttalSchema = defineSchema("herd.rebuttal", {
   v: i32(),
 });
 
-export const ProbeSchema = defineSchema("herd.probe", {
+export const ProbeSchema = defineSchema("leash.probe", {
   ns: str().indexed(),
   payee: str().indexed(),
   result: str().indexed(),

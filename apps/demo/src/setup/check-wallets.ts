@@ -63,5 +63,5 @@ if (managerKey.length === 42) {
   const address = privateKeyToAccount(hex(managerKey)).address;
   console.log(`  manager ${address}  ${formatEther(await sep.getBalance({ address }))} ETH`);
 } else console.log("  ENS_MANAGER_KEY MISSING");
-console.log(`  owner ${process.env.HERD_OWNER_ADDRESS || "MISSING"}`);
+console.log(`  owner ${process.env.LEASH_OWNER_ADDRESS || "MISSING"}`);
 process.exit(0);

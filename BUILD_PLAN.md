@@ -1,6 +1,6 @@
-# Herd Immunity: build plan
+# Leash: build plan
 
-Source of truth: `Herd Immunity PRDv2.1.md`. Clock: hacking started Nov 5, 1 pm IST, so hour 36 is Nov 7, 1 am IST. This plan was re-cut at hour 2.
+Source of truth: `Leash PRDv2.1.md`. Clock: hacking started Nov 5, 1 pm IST, so hour 36 is Nov 7, 1 am IST. This plan was re-cut at hour 2.
 
 ## What changed when the plan was re-checked
 
@@ -26,11 +26,11 @@ Source of truth: `Herd Immunity PRDv2.1.md`. Clock: hacking started Nov 5, 1 pm 
 | M0 | Hour 3 | Monorepo, TypeScript, vitest, env template, wallet script | No | `pnpm test` runs | Done |
 | M1 | Hour 6 | `core`: score, evidence, standing replay, limits, challenge hash, decide | No | S1 to S15 and property tests pass | Done |
 | M2 | Hour 9 | Spikes: hook abort, paid call, Arkiv write and read, ENS read and role check | **Yes** | All four pass against live networks | Done, on live networks |
-| M3 | Hour 12 | Real merchants on Vercel; ENS names, resolvers, `herd.*` keys, roles | **Yes** | Real lemon payment on HashScan | Done |
+| M3 | Hour 12 | Real merchants on Vercel; ENS names, resolvers, `leash.*` keys, roles | **Yes** | Real lemon payment on HashScan | Done |
 | M4 | Hour 18 | `guard`: store, adapters, signed reports, outbox, `guardedFetch`, HCS | **Yes** | **Scenes 1 to 3 live through the SDK** | Done, in rehearsal with aged funders |
 | M5 | Hour 24 | `mcp`, owner console with wallet-signed approvals, decision log | **Yes** | Scenes 4 and 8 live; same verdicts on both surfaces | Done in rehearsal; owner wallet signing in the console still untested |
-| M6 | Hour 30 | Prober, rebuttal desk, health, outage relay, public explorer, full run | **Yes** | **All scenes pass; feature freeze** | Scenes pass in rehearsal. Console, explorer deploy and final run remain |
-| M7 | Hour 33 | `/arkiv` files, README, LICENSE, AI disclosure, rehearsal, backup | No | Checklist complete | |
+| M6 | Hour 30 | Prober, rebuttal desk, health, outage relay, public explorer, full run | **Yes** | **All scenes pass; feature freeze** | All scenes pass in filmed order (rehearsal-6, 189 s). Explorer deployed. Console wallet test and final run with real agents remain |
+| M7 | Hour 33 | `/arkiv` files, README, LICENSE, AI disclosure, rehearsal, backup | No | Checklist complete | Docs drafted; final tx links, rehearsal with a person and backup remain |
 | M8 | Hour 35 | Film and submit to Hedera, Arkiv, ENS | No | Submitted | |
 
 ## Dependency order
@@ -72,8 +72,8 @@ Cut order and the never-cut list are in PRD section 20.
 
 ```text
 packages/core    pure engine
-packages/guard   @herd/guard: SDK, adapters, sqlite store, outbox
-packages/mcp     @herd/mcp: stdio server
+packages/guard   @leash/guard: SDK, adapters, sqlite store, outbox
+packages/mcp     @leash/mcp: stdio server
 apps/dashboard   owner console and public explorer
 apps/demo        merchants, prober, agent scripts, setup scripts
 arkiv/           submission files, started now (friction.md is scored)

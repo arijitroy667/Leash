@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { verifyMessage } from "viem";
-import { approvalMessage } from "@herd/guard";
+import { approvalMessage } from "@leash/guard";
 import { PUBLIC_MODE, reader } from "../../../../lib/server";
 
 export async function POST(req: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -17,7 +17,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     store.resolveApproval(id, "rejected");
     return NextResponse.json({ status: "rejected" });
   }
-  const owner = process.env.HERD_OWNER_ADDRESS as `0x${string}` | undefined;
+  const owner = process.env.LEASH_OWNER_ADDRESS as `0x${string}` | undefined;
   if (!owner || !signature) return NextResponse.json({ error: "signature required" }, { status: 400 });
   const ok = await verifyMessage({ address: owner, message: approvalMessage(a), signature }).catch(() => false);
   if (!ok) return NextResponse.json({ error: "signature is not from the owner wallet" }, { status: 403 });

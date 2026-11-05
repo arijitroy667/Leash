@@ -18,9 +18,9 @@ Arkiv lets any funded wallet write an entity, so being written does not make a r
 
 | Entity | Who can write one | When a reader counts it |
 | --- | --- | --- |
-| `herd.report` | Any wallet | The payment exists on Mirror Node, succeeded, used the configured USDC, and matches the payee, payer and amount, and the payer's Hedera key signed the report. Only one bad report per payer per payee counts in the window |
-| `herd.probe` | Any wallet | The owner is on that reader's prober allow-list, and the payment is real and went to that payee |
-| `herd.rebuttal` | Any wallet | The signer holds `ROLE_SET_TEXT` for the `herd.rebuttal` key on the merchant's ENS resolver. It only asks for a probe and never unblocks a merchant |
+| `leash.report` | Any wallet | The payment exists on Mirror Node, succeeded, used the configured USDC, and matches the payee, payer and amount, and the payer's Hedera key signed the report. Only one bad report per payer per payee counts in the window |
+| `leash.probe` | Any wallet | The owner is on that reader's prober allow-list, and the payment is real and went to that payee |
+| `leash.rebuttal` | Any wallet | The signer holds `ROLE_SET_TEXT` for the `leash.rebuttal` key on the merchant's ENS resolver. It only asks for a probe and never unblocks a merchant |
 
 So a stranger can join in by paying a merchant and reporting honestly, with no sign-up. A report costs a real payment, and it counts only for the wallet that paid.
 

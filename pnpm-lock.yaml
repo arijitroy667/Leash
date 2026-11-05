@@ -26,10 +26,10 @@ importers:
 
   apps/dashboard:
     dependencies:
-      '@herd/core':
+      '@leash/core':
         specifier: workspace:*
         version: link:../../packages/core
-      '@herd/guard':
+      '@leash/guard':
         specifier: workspace:*
         version: link:../../packages/guard
       dotenv:
@@ -66,21 +66,21 @@ importers:
       '@arkiv-network/sdk':
         specifier: 1.0.1
         version: 1.0.1(typescript@5.9.3)(viem@2.57.16(typescript@5.9.3)(zod@4.6.7))
-      '@herd/core':
-        specifier: workspace:*
-        version: link:../../packages/core
-      '@herd/guard':
-        specifier: workspace:*
-        version: link:../../packages/guard
-      '@herd/merchant':
-        specifier: workspace:*
-        version: link:../merchant
       '@hiero-ledger/sdk':
         specifier: 2.90.1
         version: 2.90.1
       '@hono/node-server':
         specifier: ^2.1.6
         version: 2.1.6(hono@4.13.16)
+      '@leash/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@leash/guard':
+        specifier: workspace:*
+        version: link:../../packages/guard
+      '@leash/merchant':
+        specifier: workspace:*
+        version: link:../merchant
       '@modelcontextprotocol/sdk':
         specifier: 1.32.2
         version: 1.32.2(zod@4.6.7)
@@ -131,12 +131,12 @@ importers:
       '@arkiv-network/sdk':
         specifier: 1.0.1
         version: 1.0.1(typescript@5.9.3)(viem@2.57.16(typescript@5.9.3)(zod@4.6.7))
-      '@herd/core':
-        specifier: workspace:*
-        version: link:../core
       '@hiero-ledger/sdk':
         specifier: 2.90.1
         version: 2.90.1
+      '@leash/core':
+        specifier: workspace:*
+        version: link:../core
       '@x402/core':
         specifier: 2.30.0
         version: 2.30.0
@@ -152,10 +152,10 @@ importers:
 
   packages/mcp:
     dependencies:
-      '@herd/core':
+      '@leash/core':
         specifier: workspace:*
         version: link:../core
-      '@herd/guard':
+      '@leash/guard':
         specifier: workspace:*
         version: link:../guard
       '@modelcontextprotocol/sdk':

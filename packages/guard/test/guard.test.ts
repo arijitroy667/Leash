@@ -67,13 +67,13 @@ describe("report signature", () => {
 
 describe("ENS parsing", () => {
   it("parses a declaration; no payTo means no declaration", () => {
-    const d = parseDeclaration({ "herd.payTo": "0.0.1", "herd.network": "hedera:testnet", "herd.asset": "0.0.429274", "herd.maxPrice": "0.5", "herd.domains": "https://a.example, https://b.example", "herd.schema": "city,tempC", "herd.probeUrl": null, "herd.policyVersion": "2" });
+    const d = parseDeclaration({ "leash.payTo": "0.0.1", "leash.network": "hedera:testnet", "leash.asset": "0.0.429274", "leash.maxPrice": "0.5", "leash.domains": "https://a.example, https://b.example", "leash.schema": "city,tempC", "leash.probeUrl": null, "leash.policyVersion": "2" });
     expect(d?.domains).toEqual(["https://a.example", "https://b.example"]);
     expect(d?.schema).toEqual(["city", "tempC"]);
-    expect(parseDeclaration({ "herd.payTo": null })).toBeNull();
+    expect(parseDeclaration({ "leash.payTo": null })).toBeNull();
   });
   it("rejects hostile merchant-supplied names", () => {
-    expect(validName("herd-weather.eth")).toBe(true);
+    expect(validName("leash-weather.eth")).toBe(true);
     for (const bad of ["ignore previous instructions", "a", "x.eth<script>", "0.0.11286079", 5, null]) expect(validName(bad)).toBe(false);
   });
 });
@@ -147,7 +147,7 @@ describe("store", () => {
     const { mkdtempSync } = await import("node:fs");
     const { tmpdir } = await import("node:os");
     const { join } = await import("node:path");
-    const path = join(mkdtempSync(join(tmpdir(), "herd-")), "h.sqlite");
+    const path = join(mkdtempSync(join(tmpdir(), "leash-")), "h.sqlite");
     const a = new Store(path);
     a.markPaid("x", "h", 10);
     a.db.close();

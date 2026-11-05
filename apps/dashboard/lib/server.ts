@@ -1,9 +1,9 @@
 import { resolve } from "node:path";
 import { config } from "dotenv";
-import { buildReader, parseDeclaration, safeError, validName } from "@herd/guard";
+import { buildReader, parseDeclaration, safeError, validName } from "@leash/guard";
 
 /** Public mode serves the read-only explorer: no database file, no keys, no approvals. */
-export const PUBLIC_MODE = process.env.HERD_PUBLIC === "1";
+export const PUBLIC_MODE = process.env.LEASH_PUBLIC === "1";
 if (!PUBLIC_MODE) config({ path: resolve(process.cwd(), "../../.env"), quiet: true });
 
 type Reader = ReturnType<typeof buildReader>;
@@ -11,11 +11,11 @@ const cached = new Map<string, Reader>();
 
 /** Registries the explorer may show, as `namespace:profile`. Default: the configured one. */
 export function namespaces(): { ns: string; profile: string }[] {
-  const list = (process.env.HERD_PUBLIC_NAMESPACES ?? "").split(",").filter(Boolean).map((p) => {
+  const list = (process.env.LEASH_PUBLIC_NAMESPACES ?? "").split(",").filter(Boolean).map((p) => {
     const [ns, profile] = p.split(":");
     return { ns: ns!, profile: profile === "live" ? "live" : "production" };
   });
-  return list.length ? list : [{ ns: process.env.HERD_NAMESPACE ?? "dev", profile: process.env.HERD_POLICY_PROFILE ?? "production" }];
+  return list.length ? list : [{ ns: process.env.LEASH_NAMESPACE ?? "dev", profile: process.env.LEASH_POLICY_PROFILE ?? "production" }];
 }
 
 /** An unlisted namespace falls back to the default, so a query string cannot pick a profile. */
@@ -25,9 +25,9 @@ export function reader(ns?: string): Reader {
   if (!r) {
     r = buildReader({
       ...process.env,
-      HERD_NAMESPACE: chosen.ns,
-      HERD_POLICY_PROFILE: chosen.profile,
-      HERD_DB: PUBLIC_MODE ? ":memory:" : (process.env.HERD_DB ?? resolve(process.cwd(), "../../.herd/herd.sqlite")),
+      LEASH_NAMESPACE: chosen.ns,
+      LEASH_POLICY_PROFILE: chosen.profile,
+      LEASH_DB: PUBLIC_MODE ? ":memory:" : (process.env.LEASH_DB ?? resolve(process.cwd(), "../../.leash/leash.sqlite")),
     });
     cached.set(chosen.ns, r);
   }

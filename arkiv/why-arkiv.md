@@ -4,7 +4,7 @@ A shared safety registry needs three things: nobody controls the data, bad recor
 
 ## Expiry is forgiveness
 
-A blacklist that never forgets is unfair, and one that forgets too easily is useless. Herd Immunity writes every report with a real expiry. A strike only exists while the evidence behind it does, so no merchant can be blocked forever by old data, and nobody has to run a cleanup job or decide who gets a pardon.
+A blacklist that never forgets is unfair, and one that forgets too easily is useless. Leash writes every report with a real expiry. A strike only exists while the evidence behind it does, so no merchant can be blocked forever by old data, and nobody has to run a cleanup job or decide who gets a pardon.
 
 | | Production | Live demo profile |
 | --- | --- | --- |

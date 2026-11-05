@@ -1,14 +1,14 @@
 import { createHash } from "node:crypto";
 import { parseAbi, verifyMessage, keccak256, toBytes, type PublicClient } from "viem";
-import type { Evidence, Report } from "@herd/core";
+import type { Evidence, Report } from "@leash/core";
 import type { Arkiv, ProbeRow, RebuttalRow, ReportRow } from "./arkiv.ts";
 import { verifyHederaSignature, type Mirror } from "./mirror.ts";
 
 export const reportMessage = (r: { ns: string; txId: string; payee: string; outcome: string; amountMicroUsd: number; owner: string }) =>
-  `herd.report:v1|${r.ns}|${r.txId}|${r.payee}|${r.outcome}|${r.amountMicroUsd}|${r.owner.toLowerCase()}`;
+  `leash.report:v1|${r.ns}|${r.txId}|${r.payee}|${r.outcome}|${r.amountMicroUsd}|${r.owner.toLowerCase()}`;
 
 export const rebuttalMessage = (r: { ns: string; ens: string; payee: string; reason: string; evidenceHash: string; filedAt: number }) =>
-  `herd.rebuttal:v1|${r.ns}|${r.ens}|${r.payee}|${r.reason}|${r.evidenceHash}|${r.filedAt}`;
+  `leash.rebuttal:v1|${r.ns}|${r.ens}|${r.payee}|${r.reason}|${r.evidenceHash}|${r.filedAt}`;
 
 export const REBUTTAL_REASONS = ["outage", "config-error", "payment-mismatch", "dispute-customer-error", "compromised-key-rotated"] as const;
 
@@ -21,9 +21,9 @@ const RESOLVER_ROLES = parseAbi([
   "function hasRootRoles(uint256 roleBitmap, address account) view returns (bool)",
 ]);
 
-/** The rebuttal right is ROLE_SET_TEXT on the merchant resolver's herd.rebuttal key. */
+/** The rebuttal right is ROLE_SET_TEXT on the merchant resolver's leash.rebuttal key. */
 export async function holdsRebuttalRole(client: PublicClient, resolver: `0x${string}`, signer: `0x${string}`): Promise<boolean> {
-  const resource = BigInt(keccak256(toBytes("herd.rebuttal")));
+  const resource = BigInt(keccak256(toBytes("leash.rebuttal")));
   const [scoped, root] = await Promise.all([
     client.readContract({ address: resolver, abi: RESOLVER_ROLES, functionName: "hasRoles", args: [resource, ROLE_SET_TEXT, signer] }),
     client.readContract({ address: resolver, abi: RESOLVER_ROLES, functionName: "hasRootRoles", args: [ROLE_SET_TEXT, signer] }),

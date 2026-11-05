@@ -1,10 +1,10 @@
 import { createPublicClient, http, type PublicClient } from "viem";
 import { sepolia } from "viem/chains";
 import { normalize } from "viem/ens";
-import type { Declaration, PolicyParams } from "@herd/core";
+import type { Declaration, PolicyParams } from "@leash/core";
 import { safeError, type Store } from "./store.ts";
 
-export const HERD_KEYS = ["herd.payTo", "herd.network", "herd.asset", "herd.maxPrice", "herd.domains", "herd.schema", "herd.probeUrl", "herd.policyVersion"] as const;
+export const LEASH_KEYS = ["leash.payTo", "leash.network", "leash.asset", "leash.maxPrice", "leash.domains", "leash.schema", "leash.probeUrl", "leash.policyVersion"] as const;
 
 // The last label must start with a letter, so a Hedera account id such as 0.0.123 is never a name.
 const NAME = /^([a-z0-9-]+\.)+[a-z][a-z0-9-]*$/;
@@ -13,18 +13,18 @@ const NAME = /^([a-z0-9-]+\.)+[a-z][a-z0-9-]*$/;
 export const validName = (n: unknown): n is string => typeof n === "string" && n.length <= 255 && NAME.test(n);
 
 export function parseDeclaration(rec: Record<string, string | null>): Declaration | null {
-  const payTo = rec["herd.payTo"];
+  const payTo = rec["leash.payTo"];
   if (!payTo) return null;
   const list = (v: string | null | undefined) => (v ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   return {
     payTo,
-    network: rec["herd.network"] ?? "",
-    asset: rec["herd.asset"] ?? "",
-    maxPriceUsd: Number(rec["herd.maxPrice"] ?? 0),
-    domains: list(rec["herd.domains"]),
-    schema: list(rec["herd.schema"]),
-    probeUrl: rec["herd.probeUrl"] ?? undefined,
-    policyVersion: Number(rec["herd.policyVersion"] ?? 0),
+    network: rec["leash.network"] ?? "",
+    asset: rec["leash.asset"] ?? "",
+    maxPriceUsd: Number(rec["leash.maxPrice"] ?? 0),
+    domains: list(rec["leash.domains"]),
+    schema: list(rec["leash.schema"]),
+    probeUrl: rec["leash.probeUrl"] ?? undefined,
+    policyVersion: Number(rec["leash.policyVersion"] ?? 0),
   };
 }
 
@@ -38,8 +38,8 @@ export class Ens {
 
   async fetch(name: string): Promise<Declaration | null> {
     const n = normalize(name);
-    const vals = await Promise.all(HERD_KEYS.map((key) => this.client.getEnsText({ name: n, key })));
-    return parseDeclaration(Object.fromEntries(HERD_KEYS.map((k, i) => [k, vals[i] ?? null])));
+    const vals = await Promise.all(LEASH_KEYS.map((key) => this.client.getEnsText({ name: n, key })));
+    return parseDeclaration(Object.fromEntries(LEASH_KEYS.map((k, i) => [k, vals[i] ?? null])));
   }
 
   /** Follows the staleness table in PRD section 12. */

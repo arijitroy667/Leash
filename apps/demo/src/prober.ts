@@ -4,7 +4,7 @@ import "dotenv/config";
 import { fileURLToPath } from "node:url";
 import { wrapFetchWithPayment } from "@x402/fetch";
 import { Transaction } from "@hiero-ledger/sdk";
-import { buildReader, deliveryCheck, digest, rawClient, safeError } from "@herd/guard";
+import { buildReader, deliveryCheck, digest, rawClient, safeError } from "@leash/guard";
 
 const env = process.env;
 const hex = (k: string) => (k.startsWith("0x") ? k : `0x${k}`) as `0x${string}`;

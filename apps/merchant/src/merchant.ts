@@ -40,7 +40,7 @@ export function buildMerchant(cfg: MerchantConfig) {
           scheme: "exact",
           network: cfg.network,
           payTo: cfg.payTo,
-          price: { asset: cfg.usdc, amount, extra: cfg.claim ? { herdEns: cfg.claim } : {} },
+          price: { asset: cfg.usdc, amount, extra: cfg.claim ? { leashEns: cfg.claim } : {} },
           maxTimeoutSeconds: 60,
         },
         description: `${cfg.kind} ${path}`,
@@ -57,7 +57,7 @@ export function buildMerchant(cfg: MerchantConfig) {
 
   for (const path of Object.keys(PRICES)) {
     app.get(path, (c) => {
-      // Lemon really takes the payment, then returns JSON missing the fields it declared in herd.schema.
+      // Lemon really takes the payment, then returns JSON missing the fields it declared in leash.schema.
       if (cfg.kind === "lemon") return c.json({ ok: true, note: "thanks for the payment" });
       return c.json(honest(path));
     });

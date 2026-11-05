@@ -86,7 +86,7 @@ function RebuttalDesk({ merchants, onDone }: { merchants: any[]; onDone: () => v
   return (
     <section className="panel">
       <h2>Rebuttal desk</h2>
-      <p className="muted">Sign as the wallet holding the merchant&apos;s <code>herd.rebuttal</code> role. One per block episode.</p>
+      <p className="muted">Sign as the wallet holding the merchant&apos;s <code>leash.rebuttal</code> role. One per block episode.</p>
       <div className="row" style={{ justifyContent: "flex-start" }}>
         <label>Merchant <select value={name} onChange={(e) => setEns(e.target.value)}>{named.map((m) => <option key={m.name}>{m.name}</option>)}</select></label>
         <label>Reason <select value={reason} onChange={(e) => setReason(e.target.value)}>{REASONS.map((r) => <option key={r}>{r}</option>)}</select></label>
@@ -126,7 +126,7 @@ export default function Console() {
   return (
     <main>
       <div className="top">
-        <h1>Herd Immunity <span className="muted" style={{ fontWeight: 400 }}>owner console</span></h1>
+        <h1>Leash <span className="muted" style={{ fontWeight: 400 }}>owner console</span></h1>
         <span className="muted">namespace <code>{s.namespace}</code> · <a href="/explorer">public explorer</a></span>
       </div>
       <ProfileBanner profile={s.profile} />

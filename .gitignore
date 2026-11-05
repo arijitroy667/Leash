@@ -8,6 +8,6 @@ node_modules/
 .next/
 .vercel/
 dist/
-Herd Immunity PRDv2.md
+Leash PRDv2.md
 .show*.log
-.herd/
+.leash/

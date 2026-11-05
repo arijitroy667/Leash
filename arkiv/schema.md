@@ -2,7 +2,7 @@
 
 All entities are wallet-owned and expiring. An entity is data, never a verdict: readers re-verify every row before it counts. Column definitions live in `packages/guard/src/arkiv.ts`.
 
-## `herd.report`
+## `leash.report`
 
 Filed automatically by the paying guard after its delivery check.
 
@@ -21,13 +21,13 @@ Filed automatically by the paying guard after its delivery check.
 | `reason` | str | no | Enum such as `delivered` or `schema-mismatch` |
 | `v` | i32 | no | Schema version; readers ignore versions they do not know |
 
-The signed message is `herd.report:v1|ns|txId|payee|outcome|amountMicroUsd|arkivOwner`, so a signature cannot be replayed by another wallet or for another outcome.
+The signed message is `leash.report:v1|ns|txId|payee|outcome|amountMicroUsd|arkivOwner`, so a signature cannot be replayed by another wallet or for another outcome.
 
-## `herd.rebuttal`
+## `leash.rebuttal`
 
-Signed by the wallet holding `ROLE_SET_TEXT` on the merchant resolver's `herd.rebuttal` key. It queues a probe and never unblocks alone. Columns: `ns`, `payee`, `ens`, `reason` (enum), `evidenceHash`, `episodeStart`, `filedAt`, `signer`, `signature` (bytes), `v`. Free text is never stored.
+Signed by the wallet holding `ROLE_SET_TEXT` on the merchant resolver's `leash.rebuttal` key. It queues a probe and never unblocks alone. Columns: `ns`, `payee`, `ens`, `reason` (enum), `evidenceHash`, `episodeStart`, `filedAt`, `signer`, `signature` (bytes), `v`. Free text is never stored.
 
-## `herd.probe`
+## `leash.probe`
 
 Written by allow-listed prober wallets after a real paid retest. Columns: `ns`, `payee`, `result` (`pass` or `fail`), `txId`, `consensusTs`, `amountMicroUsd`, `deliveryDigest`, `v`.
 

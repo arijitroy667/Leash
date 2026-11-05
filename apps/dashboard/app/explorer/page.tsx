@@ -33,7 +33,7 @@ export default function Explorer() {
   return (
     <main>
       <div className="top">
-        <h1>Herd Immunity <span className="muted" style={{ fontWeight: 400 }}>merchant explorer</span></h1>
+        <h1>Leash <span className="muted" style={{ fontWeight: 400 }}>merchant explorer</span></h1>
         {data?.namespaces?.length > 1 ? (
           <label className="muted">Registry{" "}
             <select value={data.namespace} onChange={(e) => setNs(e.target.value)}>
@@ -48,7 +48,7 @@ export default function Explorer() {
       </p>
       <form className="row" style={{ justifyContent: "flex-start", marginBottom: 16 }} onSubmit={(e) => { e.preventDefault(); setActive(key.trim()); }}>
         <label htmlFor="q" className="muted">ENS name, domain or Hedera account</label>
-        <input id="q" value={key} onChange={(e) => setKey(e.target.value)} placeholder="herd-lemon.eth" />
+        <input id="q" value={key} onChange={(e) => setKey(e.target.value)} placeholder="leash-lemon.eth" />
         <button type="submit">Look up</button>
         {active && <button type="button" onClick={() => { setKey(""); setActive(""); }}>Show all</button>}
       </form>

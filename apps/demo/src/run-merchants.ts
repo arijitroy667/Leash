@@ -1,7 +1,7 @@
 // Runs merchants locally for development. The demo uses public deployments, so ENS can name real origins.
 import "dotenv/config";
 import { serve } from "@hono/node-server";
-import { buildMerchant, configFromEnv, type MerchantKind } from "@herd/merchant";
+import { buildMerchant, configFromEnv, type MerchantKind } from "@leash/merchant";
 
 const kinds: MerchantKind[] = ["weather", "lemon", "spoof", "rogue"];
 kinds.forEach((kind, i) => {

@@ -1,5 +1,5 @@
 {
-  "name": "@herd/dashboard",
+  "name": "@leash/dashboard",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -8,8 +8,8 @@
     "start": "next start -p 3100"
   },
   "dependencies": {
-    "@herd/core": "workspace:*",
-    "@herd/guard": "workspace:*",
+    "@leash/core": "workspace:*",
+    "@leash/guard": "workspace:*",
     "dotenv": "^18.0.9",
     "next": "^16.4.5",
     "react": "^19.3.1",

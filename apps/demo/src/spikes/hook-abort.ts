@@ -6,11 +6,11 @@ import { x402Client } from "@x402/core/client";
 import { wrapFetchWithPayment } from "@x402/fetch";
 import { createClientHederaSigner } from "@x402/hedera";
 import { ExactHederaScheme } from "@x402/hedera/exact/client";
-import { buildMerchant } from "@herd/merchant";
+import { buildMerchant } from "@leash/merchant";
 
 const facilitators = process.argv[2] ? [process.argv[2]] : ["https://api.testnet.blocky402.com", "https://x402.org/facilitator"];
 const app = buildMerchant({
-  kind: "weather", payTo: "0.0.11286079", claim: "herd-weather.eth", network: "hedera:testnet", usdc: "0.0.429274",
+  kind: "weather", payTo: "0.0.11286079", claim: "leash-weather.eth", network: "hedera:testnet", usdc: "0.0.429274",
   facilitatorUrls: facilitators,
 });
 const srv = serve({ fetch: app.fetch, port: 4871 });
@@ -27,7 +27,7 @@ const client = new x402Client().register("hedera:*" as never, new ExactHederaSch
 let seen: any;
 client.onBeforePaymentCreation(async (ctx) => {
   seen = ctx;
-  return { abort: true, reason: "herd:DENY:spike" };
+  return { abort: true, reason: "leash:DENY:spike" };
 });
 const paid = wrapFetchWithPayment(fetch, client);
 try {

@@ -1,12 +1,12 @@
 {
-  "name": "@herd/guard",
+  "name": "@leash/guard",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "exports": "./src/index.ts",
   "dependencies": {
     "@arkiv-network/sdk": "1.0.1",
-    "@herd/core": "workspace:*",
+    "@leash/core": "workspace:*",
     "@hiero-ledger/sdk": "2.90.1",
     "@x402/core": "2.30.0",
     "@x402/fetch": "2.30.0",

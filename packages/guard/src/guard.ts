@@ -8,7 +8,7 @@ import { normalize } from "viem/ens";
 import {
   DEFAULT_LIMITS, PROFILES, challengeHash, decide, normalizeUrl, replay,
   type Challenge, type Decision, type Limits, type PolicyParams, type StandingView,
-} from "@herd/core";
+} from "@leash/core";
 import { Arkiv, type RebuttalRow } from "./arkiv.ts";
 import { deliveryCheck } from "./delivery.ts";
 import { Ens, validName, type DeclarationResult } from "./ens.ts";
@@ -21,16 +21,16 @@ const SAFE_MODE_DEPS = ["ens", "arkiv", "mirror"];
 const MAX_REPORT_ATTEMPTS = 40;
 
 export const approvalMessage = (a: { id: string; challengeHash: string; expiresAt: number }) =>
-  `herd.approval:v1|${a.id}|${a.challengeHash}|${a.expiresAt}`;
+  `leash.approval:v1|${a.id}|${a.challengeHash}|${a.expiresAt}`;
 
-export class HerdDenied extends Error {
+export class LeashDenied extends Error {
   constructor(readonly decision: Decision) {
-    super(`herd:DENY:${decision.reasons.join(",")}`);
+    super(`leash:DENY:${decision.reasons.join(",")}`);
   }
 }
-export class HerdEscalated extends Error {
+export class LeashEscalated extends Error {
   constructor(readonly decision: Decision, readonly approvalId: string) {
-    super(`herd:ESCALATE:${decision.reasons.join(",")}`);
+    super(`leash:ESCALATE:${decision.reasons.join(",")}`);
   }
 }
 
@@ -66,11 +66,11 @@ interface RequestCtx {
   paid?: { txId: string; payee: string; ens: string; amountMicroUsd: number; schema: string[]; hash: string; decisionId: string };
 }
 
-export function createHerdGuard(cfg: GuardConfig) {
+export function createLeashGuard(cfg: GuardConfig) {
   const params: PolicyParams = PROFILES[cfg.policyProfile ?? "production"];
   const usdc = cfg.usdc ?? "0.0.429274";
   const limits: Limits = { ...DEFAULT_LIMITS, allowedAssets: [usdc], ...cfg.limits };
-  const store = new Store(cfg.dbPath ?? ".herd/herd.sqlite");
+  const store = new Store(cfg.dbPath ?? ".leash/leash.sqlite");
   const mirror = new Mirror(cfg.mirrorUrl ?? "https://testnet.mirrornode.hedera.com", usdc, store);
   const ens = new Ens(cfg.sepoliaRpcUrl, store, params);
   const arkiv = new Arkiv(cfg.arkivAccessKey, cfg.namespace, cfg.arkivRpcUrl);
@@ -122,7 +122,7 @@ export function createHerdGuard(cfg: GuardConfig) {
     const now = nowSec();
     store.expireApprovals(now);
     const challenge = toChallenge(req, ctx?.url ?? `unknown://${req.payTo}`);
-    const claim = validName(req.extra?.herdEns) ? (req.extra.herdEns as string) : null;
+    const claim = validName(req.extra?.leashEns) ? (req.extra.leashEns as string) : null;
     const [declaration, reg] = await Promise.all([ens.resolve(claim, now), standing(req.payTo, now)]);
     const merchant = claim && declaration.value ? claim : req.payTo;
     const decision = decide({
@@ -178,11 +178,11 @@ export function createHerdGuard(cfg: GuardConfig) {
       store.saveDecision(cfg.agent, decision);
       auditDecision(decision);
       if (ctx) ctx.decision = decision;
-      console.error(JSON.stringify({ herd: "decision", agent: cfg.agent, id: decision.id, verdict: decision.verdict, reasons: decision.reasons, standing: decision.standing, score: decision.score, merchant: decision.merchantKey }));
+      console.error(JSON.stringify({ leash: "decision", agent: cfg.agent, id: decision.id, verdict: decision.verdict, reasons: decision.reasons, standing: decision.standing, score: decision.score, merchant: decision.merchantKey }));
       (hook as any).__declaration = declaration;
       if (ctx) (ctx as any).schema = declaration.value?.schema ?? [];
       if (cfg.mode === "observe" || decision.verdict === "ALLOW") return;
-      const reason = `herd:${decision.verdict}:${decision.reasons.join(",")}`;
+      const reason = `leash:${decision.verdict}:${decision.reasons.join(",")}`;
       if (decision.verdict === "DENY") return { abort: true, reason };
       if (await useApproval(decision.challengeHash, decision.at)) return;
       const approvalId = pendingApproval(decision, req);
@@ -200,22 +200,22 @@ export function createHerdGuard(cfg: GuardConfig) {
       store.markPaid(cfg.agent, d.challengeHash, at);
       store.recordSpend({ agent: cfg.agent, session, merchant: d.merchantKey, resource: normalizeUrl(ctx.url), standing: d.standing, amount: d.amountUsd, at });
       ctx.paid = {
-        txId: tx.transactionId!.toString(), payee: req.payTo, ens: validName(req.extra?.herdEns) ? req.extra.herdEns : "",
+        txId: tx.transactionId!.toString(), payee: req.payTo, ens: validName(req.extra?.leashEns) ? req.extra.leashEns : "",
         amountMicroUsd: Number(req.amount), schema: (ctx as any).schema ?? [], hash: d.challengeHash, decisionId: d.id,
       };
     });
   }
 
-  async function guardedFetchImpl(inner: typeof fetch, input: Parameters<typeof fetch>[0], init?: RequestInit & { herdIdempotent?: boolean }) {
+  async function guardedFetchImpl(inner: typeof fetch, input: Parameters<typeof fetch>[0], init?: RequestInit & { leashIdempotent?: boolean }) {
     const url = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
-    const ctx: RequestCtx = { url, origin: new URL(url).origin, receivedAt: nowSec(), idempotent: !!init?.herdIdempotent };
+    const ctx: RequestCtx = { url, origin: new URL(url).origin, receivedAt: nowSec(), idempotent: !!init?.leashIdempotent };
     let res: Response;
     try {
       res = await als.run(ctx, () => inner(input, init));
     } catch (e) {
       const d = ctx.decision;
-      if (d?.verdict === "DENY") throw new HerdDenied(d);
-      if (d?.verdict === "ESCALATE" && ctx.approvalId) throw new HerdEscalated(d, ctx.approvalId);
+      if (d?.verdict === "DENY") throw new LeashDenied(d);
+      if (d?.verdict === "ESCALATE" && ctx.approvalId) throw new LeashEscalated(d, ctx.approvalId);
       if (ctx.paid) queueReport(ctx, "bad", "transport-failure");
       throw e;
     }
@@ -223,7 +223,7 @@ export function createHerdGuard(cfg: GuardConfig) {
       const body = await res.clone().text();
       const check = deliveryCheck({ status: res.status, contentType: res.headers.get("content-type"), body, schema: ctx.paid.schema });
       queueReport(ctx, check.ok ? "good" : "bad", check.ok ? "delivered" : check.reason);
-      (res as any).herd = { decisionId: ctx.paid.decisionId, txId: ctx.paid.txId, delivered: check.ok };
+      (res as any).leash = { decisionId: ctx.paid.decisionId, txId: ctx.paid.txId, delivered: check.ok };
     }
     return res;
   }
@@ -258,7 +258,7 @@ export function createHerdGuard(cfg: GuardConfig) {
       }, params.reportTtlSec);
       audit("report", p.txId, { txId: p.txId, payee: p.payee, outcome: p.outcome, reason: p.reason, entityKey });
       store.db.prepare("DELETE FROM cache_standing WHERE payee=?").run(p.payee);
-      console.error(JSON.stringify({ herd: "report", agent: cfg.agent, outcome: p.outcome, reason: p.reason, txId: p.txId, entityKey }));
+      console.error(JSON.stringify({ leash: "report", agent: cfg.agent, outcome: p.outcome, reason: p.reason, txId: p.txId, entityKey }));
       return "done";
     }
     return "done";
@@ -317,7 +317,7 @@ export function createHerdGuard(cfg: GuardConfig) {
       return d;
     },
     explain: (id: string) => store.getDecision(id),
-    guardedFetch: (inner: typeof fetch) => (input: Parameters<typeof fetch>[0], init?: RequestInit & { herdIdempotent?: boolean }) => guardedFetchImpl(inner, input, init),
+    guardedFetch: (inner: typeof fetch) => (input: Parameters<typeof fetch>[0], init?: RequestInit & { leashIdempotent?: boolean }) => guardedFetchImpl(inner, input, init),
     async merchant(key: string) {
       const now = nowSec();
       const r = await standing(key, now);
@@ -332,4 +332,4 @@ export function createHerdGuard(cfg: GuardConfig) {
   };
 }
 
-export type HerdGuard = ReturnType<typeof createHerdGuard>;
+export type LeashGuard = ReturnType<typeof createLeashGuard>;

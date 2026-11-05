@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { approvalMessage } from "@herd/guard";
+import { approvalMessage } from "@leash/guard";
 import { PUBLIC_MODE, knownMerchants, merchantRow, reader } from "../../../lib/server";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +15,7 @@ export async function GET() {
     now,
     profile: r.params.name,
     namespace: r.ns,
-    owner: process.env.HERD_OWNER_ADDRESS ?? null,
+    owner: process.env.LEASH_OWNER_ADDRESS ?? null,
     topic: process.env.HCS_TOPIC_ID ?? null,
     health: r.store.healthAll(),
     safeMode: down.length >= 2,

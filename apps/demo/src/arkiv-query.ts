@@ -4,7 +4,7 @@ import { createPublicClient } from "@arkiv-network/sdk";
 import { rabdi } from "@arkiv-network/sdk/chains";
 import { and, desc, eq } from "@arkiv-network/sdk/query";
 import { http } from "viem";
-import { ReportSchema } from "@herd/guard";
+import { ReportSchema } from "@leash/guard";
 
 const [, , ns = "mumbai-prod", payee = "0.0.11323813"] = process.argv;
 const client = createPublicClient({ chain: rabdi({ accessKey: "" }), transport: http() });

@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import type { Decision, StandingView } from "@herd/core";
+import type { Decision, StandingView } from "@leash/core";
 
 const DAY = 86400;
 

@@ -1,7 +1,7 @@
 .env
 .env.*
 !.env.example
-.herd
+.leash
 .show*.log
 node_modules
 **/node_modules

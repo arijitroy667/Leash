@@ -1,4 +1,4 @@
-# Herd Immunity
+# Leash
 
 A shared, proof-of-payment-backed payee-safety registry and guard for AI agents paying over x402. One agent's loss protects every other agent, no verdict is permanent, and a merchant coming out of a block earns trust back through probation.
 
@@ -14,7 +14,7 @@ An agent's payment gets one of three verdicts before anything is signed:
 
 ## Try it
 
-**Public explorer:** https://herd-explorer.vercel.app/explorer
+**Public explorer:** https://leash-explorer.vercel.app/explorer
 
 It reads ENSv2, Arkiv and Hedera Mirror Node directly, and holds no keys or database. The registry menu switches between the demo registry (live profile, entities expire in 18 minutes) and `mumbai-prod` (production profile, 60-day expiry).
 
@@ -52,10 +52,10 @@ Rehearsals also used the two funder accounts as agents, because new agents count
 
 | Name | Resolver | Role |
 | --- | --- | --- |
-| `herd-weather.eth` | `0x27B85f92dF5975ABda37fFD14F0ad56b87BC00F2` | Honest merchant |
-| `herd-lemon.eth` | `0x7f77622E13638dEd82B78C277d2B825d37E50300` | Takes payment and returns junk, on purpose |
+| `leash-weather.eth` | `0x27B85f92dF5975ABda37fFD14F0ad56b87BC00F2` | Honest merchant |
+| `leash-lemon.eth` | `0x7f77622E13638dEd82B78C277d2B825d37E50300` | Takes payment and returns junk, on purpose |
 
-Each name has `herd.*` text records. `0xa51B1B8EC0608FA2DafEC4E3D5D67a7348C0B5d7` holds `ROLE_SET_TEXT` for only the `herd.rebuttal` key on the lemon resolver, and that role is what lets it file a rebuttal. Names and records are read live and are not hard-coded in the guard. The merchants are run by the team, which we disclose: lemon is a real merchant behaving badly on purpose.
+Each name has `leash.*` text records. `0xa51B1B8EC0608FA2DafEC4E3D5D67a7348C0B5d7` holds `ROLE_SET_TEXT` for only the `leash.rebuttal` key on the lemon resolver, and that role is what lets it file a rebuttal. Names and records are read live and are not hard-coded in the guard. The merchants are run by the team, which we disclose: lemon is a real merchant behaving badly on purpose.
 
 ## How it fits together
 
@@ -65,10 +65,10 @@ Each name has `herd.*` text records. `0xa51B1B8EC0608FA2DafEC4E3D5D67a7348C0B5d7
 flowchart LR
   subgraph AGENT["Agent runtime"]
     LLM["LLM agent"]
-    SDK["@herd/guard SDK<br/>x402Client hooks and guardedFetch"]
-    MCPS["@herd/mcp server<br/>tools, holds the signer"]
+    SDK["@leash/guard SDK<br/>x402Client hooks and guardedFetch"]
+    MCPS["@leash/mcp server<br/>tools, holds the signer"]
   end
-  subgraph CORE["@herd/core - pure and deterministic"]
+  subgraph CORE["@leash/core - pure and deterministic"]
     ENG["Decision engine<br/>hard rules - standing - limits - score - lattice"]
   end
   subgraph LOCAL["Local durable state - SQLite"]
@@ -78,7 +78,7 @@ flowchart LR
     OUTBOX["Outbox: reports and HCS audit"]
   end
   subgraph ENSG["ENSv2"]
-    ENS["Merchant names<br/>herd.* text keys and EAC roles"]
+    ENS["Merchant names<br/>leash.* text keys and EAC roles"]
   end
   subgraph ARKG["Arkiv registry"]
     ARK["reports - rebuttals - probes<br/>wallet-owned, 60 day expiry"]
@@ -89,7 +89,7 @@ flowchart LR
     MIRROR["Mirror Node REST"]
     HCS["HCS audit topic"]
   end
-  subgraph OPS["Herd services"]
+  subgraph OPS["Leash services"]
     DASH["Dashboard<br/>approvals - explorer - decisions"]
     PROBER["Prober<br/>probe retests and delivery verifier"]
   end
@@ -180,14 +180,14 @@ sequenceDiagram
   participant R as Arkiv registry
   participant F as Facilitator
   participant H as Hedera and Mirror Node
-  A->>G: Fetch forecast through guardedFetch or herd_pay_request
+  A->>G: Fetch forecast through guardedFetch or leash_pay_request
   G->>M: GET forecast
-  M-->>G: 402 with requirements, 0.005 USD to payTo, extra.herdEns
+  M-->>G: 402 with requirements, 0.005 USD to payTo, extra.leashEns
   G->>G: Hash challenge, check replay window and ceiling
-  G->>E: Resolve herd.* keys of the merchant name
+  G->>E: Resolve leash.* keys of the merchant name
   E-->>G: payTo, maxPrice, domains
   G->>G: payTo and origin match, price within declared max
-  G->>R: Query herd.report for this payee
+  G->>R: Query leash.report for this payee
   R-->>G: Reports, re-verified on Mirror Node
   G->>G: Standing NEW, limit 0.01, R 27.5, verdict ALLOW
   G->>M: Retry with signed payment
@@ -196,7 +196,7 @@ sequenceDiagram
   H-->>F: SUCCESS
   F-->>M: Settled
   M-->>G: 200 with data and settlement header
-  G->>G: Body check passes (status, type, herd.schema)
+  G->>G: Body check passes (status, type, leash.schema)
   G-->>A: Data
   G-->>H: Outbox confirms SUCCESS on Mirror Node, with retry
   G-->>R: Outbox files a signed good report
@@ -221,7 +221,7 @@ pnpm ens:setup            # real ENSv2 names, resolvers, records and roles on Se
 Then, each in its own terminal:
 
 ```bash
-pnpm --filter @herd/dashboard dev          # owner console on :3100
+pnpm --filter @leash/dashboard dev          # owner console on :3100
 npx tsx apps/demo/src/show.ts all          # the demo scenes, in the filmed order
 ```
 
@@ -236,9 +236,9 @@ For scene 7, start the show with `SHOW_RELAY=1 ARKIV_RPC_URL=http://127.0.0.1:87
 ```ts
 import { x402Client } from "@x402/core/client";
 import { wrapFetchWithPayment } from "@x402/fetch";
-import { createHerdGuard } from "@herd/guard";
+import { createLeashGuard } from "@leash/guard";
 
-const guard = createHerdGuard({ agent, hederaAccount, hederaKey, ownerAddress, arkivAccessKey, namespace: "mumbai-1" });
+const guard = createLeashGuard({ agent, hederaAccount, hederaKey, ownerAddress, arkivAccessKey, namespace: "mumbai-1" });
 const client = new x402Client(); // register your Hedera scheme here
 guard.attach(client);
 const paidFetch = guard.guardedFetch(wrapFetchWithPayment(fetch, client));
@@ -251,10 +251,10 @@ A developer can still call the raw client, so the SDK does not prevent bypass. T
 ```json
 {
   "mcpServers": {
-    "herd": {
+    "leash": {
       "command": "npx",
       "args": ["tsx", "packages/mcp/src/server.ts"],
-      "env": { "HERD_ENV_FILE": ".env", "HERD_MCP_AGENT": "C" }
+      "env": { "LEASH_ENV_FILE": ".env", "LEASH_MCP_AGENT": "C" }
     }
   }
 }
@@ -291,7 +291,7 @@ The PRD asks for any rule it does not contain to be recorded here, with a reason
 ## Disclosures
 
 - **AI use:** this project was built with Claude Code, which wrote most of the code under the team's direction.
-- **Pre-existing work:** `Herd Immunity PRDv2.1.md` is planning material written before any code, and is disclosed as such. No code predates 15:03 IST on Nov 5, 2026.
+- **Pre-existing work:** `Leash PRDv2.1.md` is planning material written before any code, and is disclosed as such. No code predates 15:03 IST on Nov 5, 2026.
 - **Commit history:** the first commit squashes 11 earlier commits made between 15:03 and 21:03 IST on Nov 5, 2026. Later commits are dated as they happen.
 - **Testnets:** Hedera testnet, Arkiv testnet and ENSv2 on Sepolia, with test tokens. ENS's Sepolia registrar charges fees in its own test token, named `MockUSDC`. We deploy no mock contracts.
 - **Live profile:** the demo uses a disclosed policy profile where 1 policy day = 18 real seconds. See `arkiv/friction.md`.

@@ -2,7 +2,7 @@
 //   tsx apps/demo/src/agent.ts A https://merchant.example/forecast
 import "dotenv/config";
 import { fileURLToPath } from "node:url";
-import { buildAgent, HerdDenied, HerdEscalated, toMirrorTxId } from "@herd/guard";
+import { buildAgent, LeashDenied, LeashEscalated, toMirrorTxId } from "@leash/guard";
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const [, , letter = "A", url] = process.argv;
@@ -10,13 +10,13 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const { guard, paidFetch } = buildAgent(letter);
   try {
     const res = await paidFetch(url);
-    const herd = (res as any).herd;
-    console.log(`status ${res.status}`, herd ?? "");
-    if (herd) console.log(`https://hashscan.io/testnet/transaction/${toMirrorTxId(herd.txId)}`);
+    const leash = (res as any).leash;
+    console.log(`status ${res.status}`, leash ?? "");
+    if (leash) console.log(`https://hashscan.io/testnet/transaction/${toMirrorTxId(leash.txId)}`);
     console.log((await res.text()).slice(0, 300));
   } catch (e) {
-    if (e instanceof HerdDenied) console.log("DENIED", e.decision.reasons, `R=${e.decision.score.toFixed(1)}`, e.decision.standing);
-    else if (e instanceof HerdEscalated) console.log("ESCALATED", e.decision.reasons, `R=${e.decision.score.toFixed(1)}`, "approval", e.approvalId);
+    if (e instanceof LeashDenied) console.log("DENIED", e.decision.reasons, `R=${e.decision.score.toFixed(1)}`, e.decision.standing);
+    else if (e instanceof LeashEscalated) console.log("ESCALATED", e.decision.reasons, `R=${e.decision.score.toFixed(1)}`, "approval", e.approvalId);
     else throw e;
   }
   for (let i = 0; i < 30 && guard.store.outboxDepth().depth > 0; i++) {

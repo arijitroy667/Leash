@@ -2,7 +2,7 @@ export interface DeliveryInput {
   status: number;
   contentType: string | null;
   body: string;
-  /** Fields required by the merchant's herd.schema. */
+  /** Fields required by the merchant's leash.schema. */
   schema: string[];
 }
 

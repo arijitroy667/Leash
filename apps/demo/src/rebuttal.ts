@@ -3,7 +3,7 @@
 import "dotenv/config";
 import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 import { normalize } from "viem/ens";
-import { REBUTTAL_REASONS, digest, holdsRebuttalRole, rebuttalMessage } from "@herd/guard";
+import { REBUTTAL_REASONS, digest, holdsRebuttalRole, rebuttalMessage } from "@leash/guard";
 import { buildReader } from "./prober.ts";
 
 const env = process.env;
@@ -25,7 +25,7 @@ const signature = await signer.signMessage({ message: rebuttalMessage({ ns: read
 
 const resolver = await reader.client.getEnsResolver({ name: normalize(ens) });
 const allowed = await holdsRebuttalRole(reader.client, resolver, signer.address);
-console.log(`signer ${signer.address} holds the herd.rebuttal role: ${allowed}`);
+console.log(`signer ${signer.address} holds the leash.rebuttal role: ${allowed}`);
 if (!allowed) {
   console.log("REJECTED: this wallet holds no role on the merchant's resolver. Nothing was filed.");
   process.exit(0);

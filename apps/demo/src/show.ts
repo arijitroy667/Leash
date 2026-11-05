@@ -7,7 +7,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { probeOnce } from "./prober.ts";
-import { buildAgent, buildReader, HerdDenied, HerdEscalated, safeError, toMirrorTxId } from "@herd/guard";
+import { buildAgent, buildReader, LeashDenied, LeashEscalated, safeError, toMirrorTxId } from "@leash/guard";
 
 const env = process.env;
 const url = (k: string, path = "/forecast") => {
@@ -31,22 +31,22 @@ async function pay(l: string, target: string): Promise<Outcome> {
   try {
     let res = await a.paidFetch(target);
     // A serverless cold start can answer 5xx before any 402. No payment exists yet, so a retry is safe.
-    for (let i = 0; i < 3 && res.status >= 500 && !(res as any).herd; i++) {
+    for (let i = 0; i < 3 && res.status >= 500 && !(res as any).leash; i++) {
       console.log(`  merchant answered ${res.status} with no payment made, retrying`);
       await new Promise((r) => setTimeout(r, 2000));
       res = await a.paidFetch(target);
     }
-    const herd = (res as any).herd;
-    const d = herd && a.guard.explain(herd.decisionId);
-    console.log(`  agent ${l}: PAID ${res.status}, delivered ${herd?.delivered}, R ${d?.score?.toFixed(1)} ${d?.standing}`);
-    if (herd) console.log(`  https://hashscan.io/testnet/transaction/${toMirrorTxId(herd.txId)}`);
-    return { kind: "paid", txId: herd?.txId };
+    const leash = (res as any).leash;
+    const d = leash && a.guard.explain(leash.decisionId);
+    console.log(`  agent ${l}: PAID ${res.status}, delivered ${leash?.delivered}, R ${d?.score?.toFixed(1)} ${d?.standing}`);
+    if (leash) console.log(`  https://hashscan.io/testnet/transaction/${toMirrorTxId(leash.txId)}`);
+    return { kind: "paid", txId: leash?.txId };
   } catch (e) {
-    if (e instanceof HerdDenied) {
+    if (e instanceof LeashDenied) {
       console.log(`  agent ${l}: DENY ${e.decision.reasons.join(",")} R ${e.decision.score.toFixed(1)} ${e.decision.standing}`);
       return { kind: "denied" };
     }
-    if (e instanceof HerdEscalated) {
+    if (e instanceof LeashEscalated) {
       console.log(`  agent ${l}: ESCALATE ${e.decision.reasons.join(",")} R ${e.decision.score.toFixed(1)} ${e.decision.standing}, approval ${e.approvalId}`);
       return { kind: "escalated", approvalId: e.approvalId };
     }
@@ -124,7 +124,7 @@ const scenes: Record<string, () => Promise<void>> = {
     await standing(env.ENS_NAME_WEATHER!);
   },
   async 2() {
-    log("Scene 2: the herd learns. A is cheated, B escalates and is cheated, C is protected");
+    log("Scene 2: the network learns. A is cheated, B escalates and is cheated, C is protected");
     await pay("A", url("LEMON"));
     await flushAll();
     await standing(LEMON());
@@ -186,13 +186,13 @@ const scenes: Record<string, () => Promise<void>> = {
     await new Promise((r) => setTimeout(r, 6000)); // past the fresh window
     await pay("C", url("LEMON", "/premium"));
     console.log("  a guard on a fresh machine, with no cache:");
-    const fresh = buildAgent(stand.C ?? "C", { ...env, HERD_DB: ":memory:" });
+    const fresh = buildAgent(stand.C ?? "C", { ...env, LEASH_DB: ":memory:" });
     agents.fresh = fresh;
     try {
       await fresh.paidFetch(url("WEATHER", "/premium"));
     } catch (e) {
-      if (e instanceof HerdEscalated) console.log(`  fresh guard: ESCALATE ${e.decision.reasons.join(",")}`);
-      else if (e instanceof HerdDenied) console.log(`  fresh guard: DENY ${e.decision.reasons.join(",")}`);
+      if (e instanceof LeashEscalated) console.log(`  fresh guard: ESCALATE ${e.decision.reasons.join(",")}`);
+      else if (e instanceof LeashDenied) console.log(`  fresh guard: DENY ${e.decision.reasons.join(",")}`);
       else throw e;
     }
   },
@@ -202,7 +202,7 @@ const scenes: Record<string, () => Promise<void>> = {
     await mcp.connect(new StdioClientTransport({
       command: process.execPath,
       args: ["--import", "tsx", "packages/mcp/src/server.ts"],
-      env: { ...process.env, HERD_MCP_AGENT: stand.C ?? "C" } as Record<string, string>,
+      env: { ...process.env, LEASH_MCP_AGENT: stand.C ?? "C" } as Record<string, string>,
       stderr: "ignore",
     }));
     const tools = (await mcp.listTools()).tools.map((t) => t.name);
@@ -212,19 +212,19 @@ const scenes: Record<string, () => Promise<void>> = {
       return JSON.parse(r.content[0].text);
     };
     const target = url("ROGUE", "/premium");
-    const first = await call("herd_pay_request", { url: target, maxUsd: 0.05 });
-    console.log("  herd_pay_request:", JSON.stringify({ status: first.status, reasons: first.reasons, standing: first.standing }));
+    const first = await call("leash_pay_request", { url: target, maxUsd: 0.05 });
+    console.log("  leash_pay_request:", JSON.stringify({ status: first.status, reasons: first.reasons, standing: first.standing }));
     if (first.status === "pending_approval") {
-      const waited = await call("herd_await_approval", { approvalId: first.approvalId, timeoutMs: 115000 });
-      console.log("  herd_await_approval:", waited.status);
+      const waited = await call("leash_await_approval", { approvalId: first.approvalId, timeoutMs: 115000 });
+      console.log("  leash_await_approval:", waited.status);
       if (waited.status === "approved") {
-        const paid = await call("herd_pay_request", { url: target, maxUsd: 0.05 });
-        console.log("  herd_pay_request:", JSON.stringify({ status: paid.status, txId: paid.txId, delivered: paid.delivered, untrusted: paid.untrusted }));
-        const again = await call("herd_pay_request", { url: target, maxUsd: 0.05 });
+        const paid = await call("leash_pay_request", { url: target, maxUsd: 0.05 });
+        console.log("  leash_pay_request:", JSON.stringify({ status: paid.status, txId: paid.txId, delivered: paid.delivered, untrusted: paid.untrusted }));
+        const again = await call("leash_pay_request", { url: target, maxUsd: 0.05 });
         console.log("  same challenge again:", JSON.stringify({ status: again.status, reasons: again.reasons }));
       }
     }
-    console.log("  budget:", JSON.stringify(await call("herd_get_budget", {})));
+    console.log("  budget:", JSON.stringify(await call("leash_get_budget", {})));
     await mcp.close();
   },
 };

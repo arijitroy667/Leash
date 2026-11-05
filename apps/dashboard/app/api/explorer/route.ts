@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { validName } from "@herd/guard";
+import { validName } from "@leash/guard";
 import { ACCOUNT_ID, knownMerchants, merchantRow, namespaces, reader } from "../../../lib/server";
 
 export const dynamic = "force-dynamic";

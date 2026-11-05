@@ -1,11 +1,11 @@
 // Rehearsal only, never in the demo: signs pending approvals with REHEARSAL_OWNER_KEY so the block path can be
-// tested unattended. The signature is real and goes through the same checks. HERD_OWNER_ADDRESS must match it.
+// tested unattended. The signature is real and goes through the same checks. LEASH_OWNER_ADDRESS must match it.
 import "dotenv/config";
 import { privateKeyToAccount } from "viem/accounts";
-import { Store, approvalMessage } from "@herd/guard";
+import { Store, approvalMessage } from "@leash/guard";
 
 const owner = privateKeyToAccount(process.env.REHEARSAL_OWNER_KEY as `0x${string}`);
-const store = new Store(process.env.HERD_DB ?? ".herd/herd.sqlite");
+const store = new Store(process.env.LEASH_DB ?? ".leash/leash.sqlite");
 console.log(`rehearsal approver ${owner.address}`);
 for (;;) {
   store.expireApprovals(Date.now() / 1000);

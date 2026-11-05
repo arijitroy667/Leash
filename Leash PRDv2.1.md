@@ -1,14 +1,14 @@
-# Herd Immunity — PRD v2.1 (production spec)
+# Leash — PRD v2.1 (production spec)
 
 Nov 5, 2026 ·
 
-Herd Immunity v2.1 corrects v2.0 after a line-by-line review against the sponsor rules, the SDK source and live testnet APIs, fixes ENSv2 as the identity track, and requires a fully live demo. It is a shared, proof-of-payment-backed payee-safety registry and guard that lets AI agents paying over x402 get ALLOW, ESCALATE or DENY from a multi-factor risk score, with probation, spend caps, replay protection and outage handling, delivered through an SDK and an MCP server.
+Leash v2.1 corrects v2.0 after a line-by-line review against the sponsor rules, the SDK source and live testnet APIs, fixes ENSv2 as the identity track, and requires a fully live demo. It is a shared, proof-of-payment-backed payee-safety registry and guard that lets AI agents paying over x402 get ALLOW, ESCALATE or DENY from a multi-factor risk score, with probation, spend caps, replay protection and outage handling, delivered through an SDK and an MCP server.
 
 ## Document control and what changed from v1
 
 | Field | Value |
 | --- | --- |
-| Product | Herd Immunity: shared payee-safety registry and guard for x402 agents |
+| Product | Leash: shared payee-safety registry and guard for x402 agents |
 | Version | 2.1, final for build; supersedes v2.0 |
 | Date | 2026-11-05 |
 | Owner | Ambuj |
@@ -22,7 +22,7 @@ This document keeps v1's order (problem, solution, stack, partner tracks, archit
 
 | # | Gap in v1, or change you requested | v2 resolution | Section |
 | --- | --- | --- | --- |
-| 1 | One integration path | SDK `@herd/guard` and MCP server `@herd/mcp` over one pure engine | 6, 7 |
+| 1 | One integration path | SDK `@leash/guard` and MCP server `@leash/mcp` over one pure engine | 6, 7 |
 | 2 | Single-factor net score | Five-factor risk score: money at risk, bad reports, good reports, money lost, money saved (verified delivered value). ALLOW below 35, ESCALATE 35 to 70, DENY at 70 or above, merged with hard rules | 9, 11 |
 | 3 | Expiry only, no rebuttal | Signed rebuttal that triggers a probe retest; both bad and good reports expire, so no merchant is blocked forever | 10 |
 | 4 | Block cleared straight to full trust (scam loop) | **Probation** after every block: capped payments, human approval above the limit, enhanced monitoring, mandatory delivery verification, good reports required to recover | 10 |
@@ -54,11 +54,11 @@ This document keeps v1's order (problem, solution, stack, partner tracks, archit
 | 4 | Reports could be forged: nothing tied the Arkiv wallet to the Hedera payer, and the transaction id belongs to the facilitator | Report carries the real payer and a signature from the payer's Hedera key; one report per txId; USDC only | 8, 9, 13 |
 | 5 | The score could break the invariant: one cluster with b = 1 and L = 0.5 gives R = 79.6, a DENY | A `risk-band` DENY needs at least two bad clusters; otherwise it is ESCALATE. New fixture S15 | 9, 11 |
 | 6 | Probation claims were wrong: a merchant just out of a block has R = 47 at 0.03 USD, not ALLOW. Pre-block evidence could also push R higher | Probation scores only evidence since entry. New fixtures S13, S14. Worked path and demo corrected | 9, 15, 19 |
-| 7 | A 200 response with well-formed junk passed the delivery check, and no ENS key declared a schema | New `herd.schema` key with required JSON fields | 8, 10 |
-| 8 | No way to get from a 402 to an ENS name | Merchant claims a name in `extra.herdEns`; the claim is verified against ENS | 8, 11 |
+| 7 | A 200 response with well-formed junk passed the delivery check, and no ENS key declared a schema | New `leash.schema` key with required JSON fields | 8, 10 |
+| 8 | No way to get from a 402 to an ENS name | Merchant claims a name in `extra.leashEns`; the claim is verified against ENS | 8, 11 |
 | 9 | The x402 hook cannot see the request URL, and `resource.url` is merchant-supplied | `guardedFetch` passes the real URL to the gate | 7 |
 | 10 | Facilitator failover was placed in the guard, but the merchant picks the facilitator and `feePayer` is inside the signed transaction | Failover moved to merchants; the guard only prevents double payment | 12 |
-| 11 | A "manager role" and per-name role scoping were assumed; ENS docs show neither | One resolver per merchant; the rebuttal right is `ROLE_SET_TEXT` on the `herd.rebuttal` key | 8, 10 |
+| 11 | A "manager role" and per-name role scoping were assumed; ENS docs show neither | One resolver per merchant; the rebuttal right is `ROLE_SET_TEXT` on the `leash.rebuttal` key | 8, 10 |
 | 12 | Arkiv API and sort assumptions were out of date | SDK 1.0.1 on `rabdi`; indexed `consensusTs` for newest-first | 4, 8 |
 | 13 | Requirements of the sponsors were missed: 5-minute limit, live link, license, AI disclosure, runnable query, written disclosure of pre-existing work | Added to the demo and checklist | 19, 21 |
 | 14 | Mocks were allowed in the demo by omission | No-mock rule, FR-25 and FR-26 | 3, 19 |
@@ -72,10 +72,10 @@ An x402 agent pays any amount a server declares, up to its spend cap, with no hu
 - **Payment is not delivery.** x402 settles on-chain before the merchant proves it will deliver. A lemon merchant keeps the money and returns garbage.
 - **Prompt injection reaches the payment decision.** Merchant-controlled text can tell an LLM agent to pay a different address.
 - **Learning stays private.** Existing agent firewalls (DoorNo.402, TollWarden, PaySafe) apply local rules or their own scores. A scammer that cheats agent A is fresh to agent B unless a vendor's score happens to catch it, and agent B cannot check the evidence.
-- **Reputation scores are not checkable evidence.** AgentRadar x402-trust does score payee wallets, from ERC-8004 reputation. Herd's difference is narrower and stronger: every report is proven by a real payment that any reader can re-verify, it expires, and a recovered merchant goes through probation.
+- **Reputation scores are not checkable evidence.** AgentRadar x402-trust does score payee wallets, from ERC-8004 reputation. Leash's difference is narrower and stronger: every report is proven by a real payment that any reader can re-verify, it expires, and a recovered merchant goes through probation.
 - **A cleared scammer re-enters at full trust.** With short expiry and no memory, a merchant can scam, be blocked, wait out the block and scam again.
 
-**The gap:** a shared, evidence-backed, expiring payee registry with a decision layer that weighs money at risk against what is known, so one agent's loss protects the herd, no verdict is permanent, and a recovered merchant earns trust back through probation rather than being forgiven outright.
+**The gap:** a shared, evidence-backed, expiring payee registry with a decision layer that weighs money at risk against what is known, so one agent's loss protects every other agent, no verdict is permanent, and a recovered merchant earns trust back through probation rather than being forgiven outright.
 
 ### Why this helps, and where it does not
 
@@ -105,7 +105,7 @@ Researched for v2.1. Vendor claims are self-published and unaudited.
 
 ## 2. Solution and product design
 
-Herd Immunity sits between an agent and every payment. It **identifies** the payee through ENS, **looks up** proven history in Arkiv, **decides** ALLOW, ESCALATE or DENY, and **learns** by filing a verified report after each paid call.
+Leash sits between an agent and every payment. It **identifies** the payee through ENS, **looks up** proven history in Arkiv, **decides** ALLOW, ESCALATE or DENY, and **learns** by filing a verified report after each paid call.
 
 **Goals:** (1) never auto-pay a merchant other agents proved bad; (2) bound the first victim's loss with small caps on new merchants; (3) explain every decision; (4) never block forever and never re-admit at full trust; (5) work through both an SDK and an MCP server.
 
@@ -115,8 +115,8 @@ Herd Immunity sits between an agent and every payment. It **identifies** the pay
 
 | User | What they do | Surface |
 | --- | --- | --- |
-| Agent developer | Wraps an x402 client in two lines, sets limits | SDK `@herd/guard` |
-| LLM-agent user | Adds the MCP server to an MCP client; the agent pays through it | MCP `@herd/mcp` |
+| Agent developer | Wraps an x402 client in two lines, sets limits | SDK `@leash/guard` |
+| LLM-agent user | Adds the MCP server to an MCP client; the agent pays through it | MCP `@leash/mcp` |
 | Owner / approver | Approves or rejects escalated payments out of band | Dashboard |
 | Merchant | Declares payTo, price ceiling, domains and response schema in ENS; signs a rebuttal if blocked | ENS text keys, Rebuttal desk |
 | Reporter | Nobody by hand: the guard files good and bad reports automatically | Automatic |
@@ -156,8 +156,8 @@ Priority: **M** must, **S** should, **C** could (cut order in section 20). Each 
 
 | ID | Requirement | Pri | Acceptance |
 | --- | --- | --- | --- |
-| FR-01 | SDK `@herd/guard` hooks the x402 client and wraps fetch | M | A paid call through the SDK is gated by a verdict |
-| FR-02 | MCP server `@herd/mcp` exposes pay, check, explain, report, approvals, budget | M | MCP Inspector completes a gated payment |
+| FR-01 | SDK `@leash/guard` hooks the x402 client and wraps fetch | M | A paid call through the SDK is gated by a verdict |
+| FR-02 | MCP server `@leash/mcp` exposes pay, check, explain, report, approvals, budget | M | MCP Inspector completes a gated payment |
 | FR-03 | Both surfaces call one pure engine | M | Same inputs give the same verdict on both |
 | FR-04 | Challenge hash and 120-second replay window; stale-challenge refusal | M | Duplicate inside window is DENY `replay` |
 | FR-05 | ENS declaration check from a verified merchant claim (payTo, network, asset, max price, domains) | M | Mismatch is DENY `declared-mismatch`; no claim is UNKNOWN |
@@ -179,7 +179,7 @@ Priority: **M** must, **S** should, **C** could (cut order in section 20). Each 
 | FR-21 | Dashboard: approvals, explorer, decision log, rebuttal desk, health | M | Demo scenes run end to end |
 | FR-22 | `explain(decisionId)` returns factors, limits and reasons | M | Matches the stored decision |
 | FR-23 | Signed delivery receipts, family taint, Swarm bonus | C | Only if time remains |
-| FR-24 | Delivery check enforces `herd.schema` | M | A 200 response missing required fields is a bad report |
+| FR-24 | Delivery check enforces `leash.schema` | M | A 200 response missing required fields is a bad report |
 | FR-25 | Live policy profile shortens listed durations with real elapsed time; shown on screen | M | Same engine and fixtures; profile banner visible |
 | FR-26 | Demo uses no mocks: real wallets, payments, contracts, entities and servers | M | Every demo event has a public explorer link or live query |
 
@@ -223,11 +223,11 @@ Facts that v2.0 left open are now settled in section 22. Each is still confirmed
 ### Repo layout
 
 ```text
-herd/
+leash/
   packages/
     core/        # pure: types, scoring, standing replay, limits, replay window, decision lattice. No I/O.
-    guard/       # @herd/guard: SDK plus adapters (arkiv ens mirror hcs) and the sqlite store
-    mcp/         # @herd/mcp: MCP server, stdio
+    guard/       # @leash/guard: SDK plus adapters (arkiv ens mirror hcs) and the sqlite store
+    mcp/         # @leash/mcp: MCP server, stdio
   apps/
     dashboard/   # owner console and public read-only explorer
     demo/        # real merchants (weather, lemon, spoof, rogue), prober, agent scripts
@@ -242,11 +242,11 @@ herd/
 
 Three tracks, one per partner, all software. Prize details were read from the ETHGlobal Mumbai prize page on 2026-11-05.
 
-| Partner track | Pool and split | Stack we use | How Herd depends on it | What judges must see |
+| Partner track | Pool and split | Stack we use | How Leash depends on it | What judges must see |
 | --- | --- | --- | --- | --- |
 | **Hedera: AI Agents That Pay** | $6,500 (3,000 / 2,000 / 1,500) | `@x402/hedera` ExactHederaScheme, a listed facilitator, Mirror Node REST, HCS topic | Real settlement on `hedera:testnet`; Mirror Node proves each report; HCS carries the audit trail | An x402 endpoint, an agent completing a paid request with no human approval, a settled transaction id in the README, HashScan link in a demo of 5 minutes or less. Spending controls and an HCS audit log earn extra points |
 | **Arkiv: Build on Arkiv (from scratch)** | $4,000 (3,000 / 1,000) | `@arkiv-network/sdk` | The registry: data lives there and every decision reads it. Expiry is the forgiveness mechanism | Equal judging on friction, reach, why Arkiv and how you use Arkiv. Needs `schema.md`, an open-source license, an AI-use disclosure, writer wallets and one runnable query |
-| **ENS: Best Use of ENSv2** | $7,000 (3,000 / 2,000 / 1,000 / 1,000) | Permissioned Registry, Permissioned Resolver, Enhanced Access Control | Identity and policy layer: merchants declare `herd.*` keys; key-scoped roles decide who edits payTo or files a rebuttal | ENSv2 central and not cosmetic, a functional demo that is not hard-coded, a live demo link and open-source code. Agent namespaces are encouraged |
+| **ENS: Best Use of ENSv2** | $7,000 (3,000 / 2,000 / 1,000 / 1,000) | Permissioned Registry, Permissioned Resolver, Enhanced Access Control | Identity and policy layer: merchants declare `leash.*` keys; key-scoped roles decide who edits payTo or files a rebuttal | ENSv2 central and not cosmetic, a functional demo that is not hard-coded, a live demo link and open-source code. Agent namespaces are encouraged |
 | *Optional* | $500 | Arkiv plus Swarm | Evidence blobs in Swarm, referenced from Arkiv | Only if all Must and Should items are done |
 
 **Why these three together:** each is load-bearing. Without Hedera nothing is paid or proven; without Arkiv there is no shared, expiring memory; without ENS every payee is unknown, which forces an escalation on every payment.
@@ -258,7 +258,7 @@ Arkiv's prize text refers to "your three picks", so we plan on three partners. H
 | Question | ENSv2 | World ID Agent Pass |
 | --- | --- | --- |
 | Prize | $7,000, four winners | $5,000, three winners. The $2,500 version is Continuity only |
-| Job in Herd | Says who a payee is and which address it pays to | Confirms a human at the moment of approval |
+| Job in Leash | Says who a payee is and which address it pays to | Confirms a human at the moment of approval |
 | Fails without it | F1 spoof, F3 declared price, F5 unknown merchant, rebuttal signer | Nothing: the owner's wallet signature already gates approvals |
 | Readable by other guards | Yes, public records | No. It is an OIDC login: tokens are checked against the app's own client id, and no claim binds a payTo address |
 | No-mock rule | Real ENSv2 contracts on Sepolia | **Conflict:** the prize page says "Proofs are using fake identities" |
@@ -279,10 +279,10 @@ The guard sits in the payment path of the agent. All decisions come from one pur
 flowchart LR
   subgraph AGENT["Agent runtime"]
     LLM["LLM agent"]
-    SDK["@herd/guard SDK<br/>x402Client hooks and guardedFetch"]
-    MCPS["@herd/mcp server<br/>tools and resources<br/>signer held here (recommended)"]
+    SDK["@leash/guard SDK<br/>x402Client hooks and guardedFetch"]
+    MCPS["@leash/mcp server<br/>tools and resources<br/>signer held here (recommended)"]
   end
-  subgraph CORE["@herd/core - pure and deterministic"]
+  subgraph CORE["@leash/core - pure and deterministic"]
     ENG["Decision engine<br/>hard rules - standing - limits - score - lattice"]
   end
   subgraph LOCAL["Local durable state - SQLite"]
@@ -292,7 +292,7 @@ flowchart LR
     OUTBOX["Outbox: reports and HCS audit"]
   end
   subgraph ENSG["ENSv2"]
-    ENS["Merchant names<br/>herd.* text keys and EAC roles"]
+    ENS["Merchant names<br/>leash.* text keys and EAC roles"]
   end
   subgraph ARKG["Arkiv registry"]
     ARK["reports - rebuttals - probes<br/>wallet-owned, 60 day expiry"]
@@ -303,7 +303,7 @@ flowchart LR
     MIRROR["Mirror Node REST"]
     HCS["HCS audit topic"]
   end
-  subgraph OPS["Herd services"]
+  subgraph OPS["Leash services"]
     DASH["Dashboard<br/>approvals - explorer - decisions"]
     PROBER["Prober<br/>probe retests and delivery verifier"]
   end
@@ -339,9 +339,9 @@ flowchart LR
 
 | Component | Owns | Never does |
 | --- | --- | --- |
-| `@herd/core` | Scoring, standing machine, limits, caps, replay rules, decision lattice, reason codes | I/O, clocks (takes `now`), network |
-| `@herd/guard` | x402 hook wiring, `guardedFetch`, delivery check, auto-reporting; adapters for ENS, Arkiv, Mirror, HCS; durable local state and outbox | Decide anything, approve an escalation, or block a response on a remote write |
-| `@herd/mcp` | MCP tools and resources; holds the payment signer in custody mode | Let the LLM approve, or return raw merchant text |
+| `@leash/core` | Scoring, standing machine, limits, caps, replay rules, decision lattice, reason codes | I/O, clocks (takes `now`), network |
+| `@leash/guard` | x402 hook wiring, `guardedFetch`, delivery check, auto-reporting; adapters for ENS, Arkiv, Mirror, HCS; durable local state and outbox | Decide anything, approve an escalation, or block a response on a remote write |
+| `@leash/mcp` | MCP tools and resources; holds the payment signer in custody mode | Let the LLM approve, or return raw merchant text |
 | Dashboard | Approval signing, explorer, rebuttal desk, health | Compute a decision |
 | Prober | Paid probe retests, delivery verification of blocked and probation merchants | Spend above the probe budget |
 
@@ -353,13 +353,13 @@ flowchart LR
 
 ## 7. Interfaces
 
-Both surfaces call the same `decide()` in `@herd/core`. They differ in who holds the signer and how an escalation is waited on.
+Both surfaces call the same `decide()` in `@leash/core`. They differ in who holds the signer and how an escalation is waited on.
 
-|  | SDK `@herd/guard` | MCP `@herd/mcp` |
+|  | SDK `@leash/guard` | MCP `@leash/mcp` |
 | --- | --- | --- |
 | For | Code agents using `@x402/fetch` | LLM-driven agents in any MCP client |
 | Signer | Developer's process | MCP server (recommended custody mode) |
-| Escalation | `guardedFetch` rejects with `HerdEscalated` plus an approval id, or waits if `awaitApprovalMs` is set | Tool returns `pending_approval`; the LLM may only poll |
+| Escalation | `guardedFetch` rejects with `LeashEscalated` plus an approval id, or waits if `awaitApprovalMs` is set | Tool returns `pending_approval`; the LLM may only poll |
 | Bypass risk | A developer can call the raw client. Documented, not prevented | The LLM has no path to pay except through the server |
 
 ### SDK
@@ -367,11 +367,11 @@ Both surfaces call the same `decide()` in `@herd/core`. They differ in who holds
 ```ts
 import { x402Client } from "@x402/core/client";
 import { wrapFetchWithPayment } from "@x402/fetch";
-import { createHerdGuard } from "@herd/guard";
+import { createLeashGuard } from "@leash/guard";
 
-const guard = createHerdGuard({
+const guard = createLeashGuard({
   network: "hedera:testnet",
-  owner: { address: process.env.HERD_OWNER_ADDRESS! },
+  owner: { address: process.env.LEASH_OWNER_ADDRESS! },
   limits: { perCallCeiling: 1.00, sessionBudget: 2.00, dailyBudget: 10.00, newIdentityDailyBudget: 0.10 },
   unknownMerchantPolicy: "escalate",
   replayWindowSec: 120,
@@ -391,7 +391,7 @@ const why = await guard.explain(d.id);
 
 The x402 hook context carries the 402 and the selected requirements but not the request URL, and `resource.url` is merchant-supplied. So `guardedFetch` holds the real URL in `AsyncLocalStorage` for the hook, and origin checks use only that. A call that reaches the hook outside `guardedFetch` has no known origin and is ESCALATE.
 
-`attach` aborts with `{abort: true, reason: "herd:<verdict>:<codes>"}` unless the verdict is ALLOW, or ESCALATE with a valid, unused approval bound to the challenge hash. `onAfterPaymentCreation` records the spend; `guardedFetch` then runs the delivery check and queues the report.
+`attach` aborts with `{abort: true, reason: "leash:<verdict>:<codes>"}` unless the verdict is ALLOW, or ESCALATE with a valid, unused approval bound to the challenge hash. `onAfterPaymentCreation` records the spend; `guardedFetch` then runs the delivery check and queues the report.
 
 ```ts
 type Decision = {
@@ -412,13 +412,13 @@ type Decision = {
 
 | Tool | Input | Output | Notes |
 | --- | --- | --- | --- |
-| `herd_pay_request` | `url`, `method`, `maxUsd`, `idempotencyKey?` | `paid` with body and tx id, `pending_approval`, or `denied` with reason codes | Server holds the signer; full pipeline |
-| `herd_check_merchant` | `key` (ENS, domain or payTo) | Standing, factors, strikes, block end, rebuttal enum | Read-only |
-| `herd_explain_decision` | `decisionId` | Reasons, factors, limits, timestamps | Read-only |
-| `herd_report_outcome` | `txId`, `outcome`, `note?` | Report status | Only for payments this server made |
-| `herd_list_pending_approvals` | none | Pending cards (structured fields only) | Read-only |
-| `herd_await_approval` | `approvalId`, `timeoutMs` | `approved`, `rejected`, `expired`, `still_pending` | Polls only; cannot approve |
-| `herd_get_budget` | none | Session, daily and per-merchant remaining | Read-only |
+| `leash_pay_request` | `url`, `method`, `maxUsd`, `idempotencyKey?` | `paid` with body and tx id, `pending_approval`, or `denied` with reason codes | Server holds the signer; full pipeline |
+| `leash_check_merchant` | `key` (ENS, domain or payTo) | Standing, factors, strikes, block end, rebuttal enum | Read-only |
+| `leash_explain_decision` | `decisionId` | Reasons, factors, limits, timestamps | Read-only |
+| `leash_report_outcome` | `txId`, `outcome`, `note?` | Report status | Only for payments this server made |
+| `leash_list_pending_approvals` | none | Pending cards (structured fields only) | Read-only |
+| `leash_await_approval` | `approvalId`, `timeoutMs` | `approved`, `rejected`, `expired`, `still_pending` | Polls only; cannot approve |
+| `leash_get_budget` | none | Session, daily and per-merchant remaining | Read-only |
 
 Transport: stdio. MCP resources and streamable HTTP are cut for the event; the tools cover the same reads.
 
@@ -450,19 +450,19 @@ ENS holds declarations, Arkiv holds expiring shared evidence, Hedera holds payme
 
 | Key | Value | Purpose |
 | --- | --- | --- |
-| `herd.payTo` | Hedera account id or EVM address | The only address the merchant will ask payment to |
-| `herd.network` | `hedera:testnet` | Network accepted |
-| `herd.asset` | Token id | Asset accepted |
-| `herd.maxPrice` | USD per call | Declared ceiling; asking more is DENY |
-| `herd.domains` | Comma-separated origins | Origins allowed to serve 402s |
-| `herd.schema` | Comma-separated required JSON fields | Checked on every delivery. With no schema, the check can only see status, type and empty bodies |
-| `herd.probeUrl` | URL | Resource the prober may buy for retests |
-| `herd.rebuttal` | Latest rebuttal entity key | Written only by the role holder; holding this right is what authorises a rebuttal |
-| `herd.policyVersion` | Integer | Bumped on any change; guards invalidate caches |
+| `leash.payTo` | Hedera account id or EVM address | The only address the merchant will ask payment to |
+| `leash.network` | `hedera:testnet` | Network accepted |
+| `leash.asset` | Token id | Asset accepted |
+| `leash.maxPrice` | USD per call | Declared ceiling; asking more is DENY |
+| `leash.domains` | Comma-separated origins | Origins allowed to serve 402s |
+| `leash.schema` | Comma-separated required JSON fields | Checked on every delivery. With no schema, the check can only see status, type and empty bodies |
+| `leash.probeUrl` | URL | Resource the prober may buy for retests |
+| `leash.rebuttal` | Latest rebuttal entity key | Written only by the role holder; holding this right is what authorises a rebuttal |
+| `leash.policyVersion` | Integer | Bumped on any change; guards invalidate caches |
 
-**Resolvers and roles:** each merchant gets its own Permissioned Resolver, deployed through the Verifiable Factory, because a resolver role covers every name that instance serves. Roles can be scoped to one text key with `grantSetterRoles`, so a delegate can edit `herd.domains` without changing `herd.payTo`. A rebuttal is valid only from a wallet holding `ROLE_SET_TEXT` on the `herd.rebuttal` key (read path confirmed in the hour-0 spike; if no read exists, the signer must prove it with a live `setText`).
+**Resolvers and roles:** each merchant gets its own Permissioned Resolver, deployed through the Verifiable Factory, because a resolver role covers every name that instance serves. Roles can be scoped to one text key with `grantSetterRoles`, so a delegate can edit `leash.domains` without changing `leash.payTo`. A rebuttal is valid only from a wallet holding `ROLE_SET_TEXT` on the `leash.rebuttal` key (read path confirmed in the hour-0 spike; if no read exists, the signer must prove it with a live `setText`).
 
-**Merchant claim:** a merchant names itself in the 402 as `extra.herdEns`. The claim is never trusted alone: the guard resolves the name, then checks origin and payTo against it. A merchant can omit the claim, but that makes it UNKNOWN, which always escalates.
+**Merchant claim:** a merchant names itself in the 402 as `extra.leashEns`. The claim is never trusted alone: the guard resolves the name, then checks origin and payTo against it. A merchant can omit the claim, but that makes it UNKNOWN, which always escalates.
 
 ### Arkiv entities
 
@@ -470,9 +470,9 @@ All are wallet-owned. Readers re-verify before trusting; an entity is data, neve
 
 | Entity | Key attributes | Written by | Expiry |
 | --- | --- | --- | --- |
-| `herd.report` | `ns`, `payee`, `domain`, `ens`, `outcome` (good or bad), `txId`, `payer`, `payerSig`, `consensusTs`, `amountMicroUsd`, `reason`, `v` | The paying guard, automatically | 60 days |
-| `herd.rebuttal` | `ns`, `payee`, `ens`, `reason` (enum), `evidenceHash`, `episodeStart` | Role holder of the ENS name | 30 days |
-| `herd.probe` | `ns`, `payee`, `result` (pass or fail), `txId`, `consensusTs`, `deliveryDigest` | Allow-listed prober wallets | 60 days |
+| `leash.report` | `ns`, `payee`, `domain`, `ens`, `outcome` (good or bad), `txId`, `payer`, `payerSig`, `consensusTs`, `amountMicroUsd`, `reason`, `v` | The paying guard, automatically | 60 days |
+| `leash.rebuttal` | `ns`, `payee`, `ens`, `reason` (enum), `evidenceHash`, `episodeStart` | Role holder of the ENS name | 30 days |
+| `leash.probe` | `ns`, `payee`, `result` (pass or fail), `txId`, `consensusTs`, `deliveryDigest` | Allow-listed prober wallets | 60 days |
 
 Query: `from(Report).where(and(eq("ns", N), eq("payee", X))).orderBy(desc("consensusTs")).limit(200)`. Arkiv cannot sort by `$createdAt`, so `consensusTs` is an indexed column; readers replace it with the value from Mirror Node and drop any mismatch. Age is the Hedera **consensus timestamp** of `txId`, never the entity's `createdAt`. Both outcomes carry the same 60-day expiry, so strike memory lasts as long as good history.
 
@@ -521,7 +521,7 @@ f_{expo} = \min\!\left(1, \frac{A}{D + 0.02}\right) \qquad f_{ident} = \min\!\le
 
 ### Evidence rules
 
-1. **Valid reports only:** Mirror Node shows the tx SUCCESS, it moved the **declared USDC token** (0.0.429274 on testnet) from `payer` to this payee, amount at least the stated amount, and `payerSig` verifies against that payer's ED25519 or ECDSA key from `GET /accounts/{payer}`. The signed message is `herd.report:v1|ns|txId|payee|outcome|amountMicroUsd|arkivOwner`. Accounts with complex keys are ignored. One report counts per txId; if the payer signed conflicting outcomes for one txId, neither counts.
+1. **Valid reports only:** Mirror Node shows the tx SUCCESS, it moved the **declared USDC token** (0.0.429274 on testnet) from `payer` to this payee, amount at least the stated amount, and `payerSig` verifies against that payer's ED25519 or ECDSA key from `GET /accounts/{payer}`. The signed message is `leash.report:v1|ns|txId|payee|outcome|amountMicroUsd|arkivOwner`. Accounts with complex keys are ignored. One report counts per txId; if the payer signed conflicting outcomes for one txId, neither counts.
 2. **Cluster collapse:** reports group by the payer's funding cluster: the account that funded its creation, read from `/transactions?account.id=X&timestamp=gte:<created>&order=asc&limit=1` because an unbounded query can return an empty page. Known public faucets do not form a cluster, so those wallets stand alone at age weight. A cluster counts once per side. Accounts under 24 hours old weigh 0.5.
 3. **Value factor:** v(a) = 0.5 + 0.5 x min(1, a / 0.05 USD), so a dust report weighs half a real one.
 4. **Decay and windows:** bad evidence has a 72-hour half-life inside a 7-day window; good evidence a 168-hour half-life inside a 21-day window. Age uses the consensus timestamp.
@@ -621,14 +621,14 @@ The ladder the user sees (allow, escalate, deny, probation) maps onto this machi
 1. **Limited payments only:** the per-call limit and the 0.10 USD daily cap above.
 2. **Auto-approval off above the limit:** every larger payment is ESCALATE (`probation-limit`) and needs the owner's signed approval.
 3. **Enhanced reputation monitoring:** identity term starts at 0.7; the prober buys one probe a day (at most 0.01 USD) and records the result in Arkiv; any bad cluster triggers the hold.
-4. **Mandatory delivery verification on every payment:** settlement SUCCESS on Mirror Node, HTTP 2xx, non-empty body, matching content type, and every field required by `herd.schema`. The same check runs for all merchants; probation adds the probes and hold around it. The guard files the report only after the check; a failed check is a bad report at once.
+4. **Mandatory delivery verification on every payment:** settlement SUCCESS on Mirror Node, HTTP 2xx, non-empty body, matching content type, and every field required by `leash.schema`. The same check runs for all merchants; probation adds the probes and hold around it. The guard files the report only after the check; a failed check is a bad report at once.
 5. **Good reports required for recovery:** the thresholds in the table above. Waiting alone reaches NEW, never ESTABLISHED.
 
 ### Rebuttal versus expiry
 
 |  | Report expiry | Signed rebuttal |
 | --- | --- | --- |
-| Who acts | Nobody; time passes | The wallet holding `ROLE_SET_TEXT` on the merchant's `herd.rebuttal` key |
+| Who acts | Nobody; time passes | The wallet holding `ROLE_SET_TEXT` on the merchant's `leash.rebuttal` key |
 | Content | Nothing | Fixed reason (outage, config-error, payment-mismatch, dispute-customer-error, compromised-key-rotated) plus an evidence URL or hash |
 | Effect | Block ends on schedule, then PROBATION | Does **not** unblock. It queues a probe retest; if the probe passes and 24 hours have passed since the block began, the merchant moves to PROBATION early |
 | Limit | Bad evidence leaves the score after 7 days and the registry after 60 | One rebuttal per block episode; a failed probe stays visible and the merchant waits for expiry |
@@ -653,7 +653,7 @@ Fixtures and defaults use `production`. A 5-day block cannot be shown live, and 
 
 ## 11. Decision engine
 
-The engine is a fixed pipeline. Every gate can add reason codes; the verdict is the most restrictive gate result (DENY over ESCALATE over ALLOW). It runs before the payment is created, inside `onBeforePaymentCreation` or the MCP `herd_pay_request` tool.
+The engine is a fixed pipeline. Every gate can add reason codes; the verdict is the most restrictive gate result (DENY over ESCALATE over ALLOW). It runs before the payment is created, inside `onBeforePaymentCreation` or the MCP `leash_pay_request` tool.
 
 ```mermaid
 flowchart TD
@@ -687,7 +687,7 @@ Evidence is read for every payee, including one with no ENS declaration, so a pa
 | --- | --- | --- |
 | DENY | `ceiling-exceeded` | Amount above the per-call ceiling (default 1.00 USD) |
 | DENY | `declared-mismatch` | The merchant claims an ENS name and payTo, network, asset or real request origin differs from that declaration |
-| DENY | `over-declared-max` | Asked price above `herd.maxPrice` |
+| DENY | `over-declared-max` | Asked price above `leash.maxPrice` |
 | DENY | `replay` | Same challenge hash paid within 120 seconds, no idempotency flag |
 | DENY | `stale-challenge` | Challenge first seen longer ago than its `maxTimeoutSeconds` |
 | DENY | `blocked` | Standing is BLOCKED |
@@ -710,7 +710,7 @@ A rolling 24-hour ledger per (agent, merchant), keyed by ENS name when declared,
 
 ### Unknown merchants
 
-Any payee with no ENS declaration is **always ESCALATE**, even for 0.001 USD (`unknownMerchantPolicy: "escalate"`, fixed in v2). The herd lookup still runs, so a blocked key is DENY. After 10 new escalations in an hour the guard denies, which stops approval bombing. A later version may add `allow-micro` once the registry is large enough to trust.
+Any payee with no ENS declaration is **always ESCALATE**, even for 0.001 USD (`unknownMerchantPolicy: "escalate"`, fixed in v2). The registry lookup still runs, so a blocked key is DENY. After 10 new escalations in an hour the guard denies, which stops approval bombing. A later version may add `allow-micro` once the registry is large enough to trust.
 
 ### Replay protection window
 
@@ -731,7 +731,7 @@ Per-call ceiling 1.00 USD (DENY), session budget 2.00 USD and daily 10.00 USD (D
 
 | Dependency | Detected by | Fallback | Effect on decisions | Recovery |
 | --- | --- | --- | --- | --- |
-| **ENS** | Resolve timeout or error | Cached declaration: fresh 60 s, usable stale up to 10 min | Stale cache: decision marked `degraded`, caps halved. A stale declaration that mismatches the 402 is ESCALATE `declared-stale-mismatch`, never DENY. No cache: treated as UNKNOWN, so ESCALATE | Refresh on next success; `herd.policyVersion` bump invalidates cache |
+| **ENS** | Resolve timeout or error | Cached declaration: fresh 60 s, usable stale up to 10 min | Stale cache: decision marked `degraded`, caps halved. A stale declaration that mismatches the 402 is ESCALATE `declared-stale-mismatch`, never DENY. No cache: treated as UNKNOWN, so ESCALATE | Refresh on next success; `leash.policyVersion` bump invalidates cache |
 | **Arkiv** | Query timeout or error | Cached standing. Stale ESTABLISHED usable up to 15 min with caps halved. Cached BLOCKED or PROBATION honoured until its computed end | No usable cache: ESCALATE `registry-unavailable` | Report writes go to the outbox with backoff; responses never wait on a write |
 | **Mirror Node** | Timeout or 5xx | Verdict cache by txId; unverified reports ignored for scoring | Two or more clusters of unverified bad reports: ESCALATE `unverified-reports`, never DENY. If settlement cannot be confirmed, the report is held and retried | Held reports re-verified, then filed |
 | **Facilitator** | Health screen polls `GET /supported`; failed settle | The merchant chooses the facilitator and `extra.feePayer` is inside the signed transaction, so **failover is merchant-side** (our merchants fall back from Blocky402 to x402.org). The guard does not switch | After a failed settle, the guard takes the txId from the signed transaction and checks Mirror Node **before** paying again; a new attempt needs a fresh 402. Unknown outcome is ESCALATE | Health check passes again |
@@ -780,7 +780,7 @@ Keys: the owner key never leaves the dashboard; the MCP payment signer is held b
 | G4 | **Contested detection:** g at least 3 and D at least 5 x L halves bad weight | Smears against strong delivery records |
 | G5 | **Per-reporter rate limit:** at most 5 bad reports a day, 1 per payee per 24 hours; readers ignore the excess | Report spam |
 | G6 | **Concentration monitoring** on the dashboard | Coordinated campaigns (observability) |
-| G7 | **Rebuttal and optional signed receipts** (`Herd-Receipt` header; contradicted bad reports weigh about 2.0 for the merchant), a stretch goal | Claims of non-delivery for delivered goods |
+| G7 | **Rebuttal and optional signed receipts** (`Leash-Receipt` header; contradicted bad reports weigh about 2.0 for the merchant), a stretch goal | Claims of non-delivery for delivered goods |
 
 An attacker needs at least two separately funded wallets making real paid calls. The defender's cost is an ESCALATE during the attack, then a bounded, recoverable probation rather than a ban.
 
@@ -824,14 +824,14 @@ sequenceDiagram
   participant R as Arkiv registry
   participant F as Facilitator
   participant H as Hedera and Mirror Node
-  A->>G: Fetch forecast through guardedFetch or herd_pay_request
+  A->>G: Fetch forecast through guardedFetch or leash_pay_request
   G->>M: GET forecast
-  M-->>G: 402 with requirements, 0.005 USD to payTo, extra.herdEns
+  M-->>G: 402 with requirements, 0.005 USD to payTo, extra.leashEns
   G->>G: Hash challenge, check replay window and ceiling
-  G->>E: Resolve herd.* keys of the merchant name
+  G->>E: Resolve leash.* keys of the merchant name
   E-->>G: payTo, maxPrice, domains
   G->>G: payTo and origin match, price within declared max
-  G->>R: Query herd.report for this payee
+  G->>R: Query leash.report for this payee
   R-->>G: Reports, re-verified on Mirror Node
   G->>G: Standing NEW, limit 0.01, R 27.5, verdict ALLOW
   G->>M: Retry with signed payment
@@ -840,14 +840,14 @@ sequenceDiagram
   H-->>F: SUCCESS
   F-->>M: Settled
   M-->>G: 200 with data and settlement header
-  G->>G: Body check passes (status, type, herd.schema)
+  G->>G: Body check passes (status, type, leash.schema)
   G-->>A: Data
   G-->>H: Outbox confirms SUCCESS on Mirror Node, with retry
   G-->>R: Outbox files a signed good report
   G-->>H: Outbox publishes HCS audit message
 ```
 
-The agent is not held up by Mirror Node lag or a registry write. A failed settlement check turns the queued report into a held report, never a good one. The registry gains a `herd.report` (outcome good, amount, tx id, payer signature) that expires in 60 days. After the third independent good cluster, delivered value of at least 0.10 USD and a first good report at least 24 hours old, the merchant becomes ESTABLISHED and its limit rises to 0.5 x D. The owner sees nothing: a normal payment needs no interaction, and the decision log shows ALLOW, score 27.5, no reasons.
+The agent is not held up by Mirror Node lag or a registry write. A failed settlement check turns the queued report into a held report, never a good one. The registry gains a `leash.report` (outcome good, amount, tx id, payer signature) that expires in 60 days. After the third independent good cluster, delivered value of at least 0.10 USD and a first good report at least 24 hours old, the merchant becomes ESTABLISHED and its limit rises to 0.5 x D. The owner sees nothing: a normal payment needs no interaction, and the decision log shows ALLOW, score 27.5, no reasons.
 
 ## 15. Failure paths F1 to F15
 
@@ -856,10 +856,10 @@ F1 to F10 are v1's paths, each reworked. F11 to F15 are new. Every row has a tes
 | ID | Failure | v1 gap | v2 handling | Verdict and reason | Residual risk |
 | --- | --- | --- | --- | --- | --- |
 | F1 | Spoof or prompt injection: the 402 pays a different address than the ENS declaration, or page text says to pay elsewhere | Trusted merchant-visible data | Compare payTo, network, asset, origin with ENS; structured fields only; pre-payment denials logged to HCS only | DENY `declared-mismatch`; unknown payee ESCALATE | Compromised ENS owner key |
-| F2 | Lemon merchant takes payment, returns garbage | Net score ignored money at risk | NEW limit 0.01 and daily cap 0.05 bound the first loss; `herd.schema` check files a bad report at once; two clusters block; then probation | ALLOW for micro, then ESCALATE, then DENY `blocked` | First victims lose up to the NEW cap; plausible junk that fits the schema passes |
-| F3 | Price above declared maximum or bait and switch | Max not enforced | Hard rule on `herd.maxPrice`; price above 2 x median of last 5 paid calls escalates | DENY `over-declared-max`; ESCALATE `price-drift` | No declared max |
+| F2 | Lemon merchant takes payment, returns garbage | Net score ignored money at risk | NEW limit 0.01 and daily cap 0.05 bound the first loss; `leash.schema` check files a bad report at once; two clusters block; then probation | ALLOW for micro, then ESCALATE, then DENY `blocked` | First victims lose up to the NEW cap; plausible junk that fits the schema passes |
+| F3 | Price above declared maximum or bait and switch | Max not enforced | Hard rule on `leash.maxPrice`; price above 2 x median of last 5 paid calls escalates | DENY `over-declared-max`; ESCALATE `price-drift` | No declared max |
 | F4 | Slow ramp: price creeps up | Per-call view only | 24-hour per-merchant ledger, soft and hard (5 x) cap; price drift; ESTABLISHED limit 0.5 x D | ESCALATE `merchant-cap`; DENY `merchant-cap-hard` | Attacker who builds D first |
-| F5 | Unknown merchant, no ENS declaration | Micro-ALLOW in degraded mode | Always ESCALATE; herd lookup still runs; 10 escalations an hour then DENY | ESCALATE `unknown-merchant` | Owner approves anyway |
+| F5 | Unknown merchant, no ENS declaration | Micro-ALLOW in degraded mode | Always ESCALATE; leash lookup still runs; 10 escalations an hour then DENY | ESCALATE `unknown-merchant` | Owner approves anyway |
 | F6 | Replay or double payment of one challenge | No window | Challenge hash, 120-second window, stale refusal, single-use approvals, persistent store, report dedupe | DENY `replay`, `stale-challenge` | Deliberate repeat needs the idempotency flag |
 | F7 | ENS or Arkiv outage | Degraded to ALLOW | Caches with staleness limits, halved caps, outbox, safe mode | ESCALATE `registry-unavailable`, `safe-mode` | Cache stale 10 to 15 minutes |
 | F8 | Griefing: a competitor files bad reports | Any report count could block | Payer-signed proof of payment, cluster collapse, corroboration, one-cluster clamp, contested detection, rate limits, rebuttal | One cluster ESCALATE at most; block needs 2 or 3 clusters | About 0.01 USD can block a NEW merchant from two aged, separately funded wallets |
@@ -873,7 +873,7 @@ F1 to F10 are v1's paths, each reworked. F11 to F15 are new. Every row has a tes
 
 ### Worked failure path: the scam loop (F2 then F11)
 
-`lemon.herd-demo.eth` is declared in ENS, so it starts NEW.
+`lemon.leash-demo.eth` is declared in ENS, so it starts NEW.
 
 | Time | Event | Standing | Decision shown |
 | --- | --- | --- | --- |
@@ -926,7 +926,7 @@ Every decision is one structured JSON log line and one `decisions` row: decision
 
 | Part | Where | Why |
 | --- | --- | --- |
-| Four merchants | Vercel, public HTTPS | `herd.domains` must name real origins, not localhost |
+| Four merchants | Vercel, public HTTPS | `leash.domains` must name real origins, not localhost |
 | Read-only explorer | Vercel, public | The ENS live link; reads ENS and Arkiv directly, with no database |
 | Guard, MCP server, owner console, prober, agents | Operator machine | Needs durable SQLite and holds keys |
 
@@ -1009,7 +1009,7 @@ Whitewash sensitivity under v2: owners approving 10% of escalations gives 43.6 U
 | Real actor | What it is |
 | --- | --- |
 | `weather` | Honest merchant, declared in ENS |
-| `lemon` | Declared, really takes payment, returns JSON missing a `herd.schema` field |
+| `lemon` | Declared, really takes payment, returns JSON missing a `leash.schema` field |
 | `spoof` | Claims a real ENS name but its 402 asks payment to a different payTo |
 | `rogue` | Real paid endpoint with no ENS claim |
 | Agents A, B, C | Separate Hedera accounts, created at hour 0 so they are over 24 hours old, funded from separate funders (use teammates' portal accounts where possible) |
@@ -1022,9 +1022,9 @@ The `live` policy profile runs with its banner visible (section 10). Block count
 | Time | Scene | What happens | What judges see | Sponsor |
 | --- | --- | --- | --- | --- |
 | 0:00 | 1 Happy path | Agent A buys from `weather` for 0.005 USD with no human | ALLOW, R 27.5, HashScan link, good report on Arkiv, ENS declaration | Hedera, Arkiv, ENS |
-| 0:35 | 2 Herd learns | A is cheated by `lemon`. B gets ESCALATE (R 42.0), owner approves, B is cheated. C gets DENY `blocked` without ever paying | Two signed reports, block latches, 90 s countdown starts, HCS audit link | Arkiv, Hedera |
+| 0:35 | 2 The network learns | A is cheated by `lemon`. B gets ESCALATE (R 42.0), owner approves, B is cheated. C gets DENY `blocked` without ever paying | Two signed reports, block latches, 90 s countdown starts, HCS audit link | Arkiv, Hedera |
 | 1:30 | 3 Spoof | `spoof` asks a different payTo | DENY `declared-mismatch`, nothing paid, ENS record beside the 402 | ENS, HCS |
-| 1:50 | 4 and 8 Unknown, via MCP | An MCP client calls `herd_pay_request` on `rogue` and gets `pending_approval`. It can only wait. Owner signs; second use of the approval is refused | Approval card, on-chain payment, refusal | Dashboard, MCP |
+| 1:50 | 4 and 8 Unknown, via MCP | An MCP client calls `leash_pay_request` on `rogue` and gets `pending_approval`. It can only wait. Owner signs; second use of the approval is refused | Approval card, on-chain payment, refusal | Dashboard, MCP |
 | 2:30 | 5a Rebuttal | A wallet without the role is rejected. The role holder signs; the real probe still gets junk | Rebuttal entity, probe payment on HashScan, still BLOCKED | ENS roles, Arkiv |
 | 3:00 | 5b Probation | Block expires on its own, on screen | PROBATION: 0.005 ALLOW (R 32.0), 0.03 ESCALATE (R 47.0) | Arkiv |
 | 3:20 | 6 Scam loop | `lemon` cheats A, hold starts; owner approves B, B is cheated | Hold, then BLOCKED, strike 2, 180 s countdown | Arkiv |
@@ -1060,7 +1060,7 @@ The `live` policy profile runs with its banner visible (section 10). Block count
 | Hours | Core and guard | Chain integrations | Dashboard and demo | Exit gate |
 | --- | --- | --- | --- | --- |
 | **0 to 3** (Nov 5, 1 pm to 4 pm) | Monorepo, fixtures as JSON | Spikes: hook abort, paid call, Arkiv write and read, ENS read and role check | **Create and fund wallets, associate USDC, get Arkiv key and tGLM, register names.** Start `friction.md`. Ask the prize questions in section 22 | Four spikes pass; wallet age clock started |
-| **3 to 9** (4 pm to 10 pm) | Score, limits, replay window, lattice | Paid call, Mirror verifier with payer extraction | Deploy four real merchants, deploy resolvers, set `herd.*` keys and roles | Fixtures green; a real lemon payment on HashScan |
+| **3 to 9** (4 pm to 10 pm) | Score, limits, replay window, lattice | Paid call, Mirror verifier with payer extraction | Deploy four real merchants, deploy resolvers, set `leash.*` keys and roles | Fixtures green; a real lemon payment on HashScan |
 | **9 to 18** (10 pm to Nov 6, 7 am) | Standing replay, probation, rebuttal rules, both profiles, property tests | Signed Arkiv reports, clusters, ENS adapter with caches, outbox | `guardedFetch`, delivery check, HCS, production-profile buying | **Scenes 1 to 3 run live through the SDK** |
 | **18 to 24** (Nov 6, 7 am to 1 pm) | Fallbacks, safe mode | MCP tools over the same engine | Owner approvals with wallet signature, decision log | Scenes 4 and 8 run; identical verdicts on both surfaces |
 | **24 to 30** (1 pm to 7 pm) | Chaos and security tests | Prober, rebuttal signer check, outage relay | Explorer, rebuttal desk, health, Vercel link, first full run | **All scenes pass on real networks; feature freeze** |
@@ -1114,7 +1114,7 @@ Confirm each partner's current rules on its prize page at kickoff; this is what 
 
 **ENSv2**
 
-- [ ] Registered merchant names with `herd.*` records, and the registry or resolver addresses used
+- [ ] Registered merchant names with `leash.*` records, and the registry or resolver addresses used
 - [ ] Per-key role grants and a rebuttal signed by the role holder
 - [ ] A spoof denied because the 402 contradicts ENS
 - [ ] Public live demo link and open-source code; no hard-coded names or records
@@ -1185,7 +1185,7 @@ Confirm each partner's current rules on its prize page at kickoff; this is what 
 | Probation | The restricted period after a block, ended only by proven deliveries |
 | Probe | A small paid retest by the prober wallet |
 | Policy profile | The set of durations in force: `production`, or `live` for the demo |
-| Merchant claim | The ENS name a merchant gives in `extra.herdEns`; verified, never trusted alone |
+| Merchant claim | The ENS name a merchant gives in `extra.leashEns`; verified, never trusted alone |
 | Rebuttal | A signed explanation from a blocked merchant; triggers a probe, never unblocks alone |
 | Outbox | Durable local queue of reports and audit messages awaiting remote write |
 | Safe mode | Everything ESCALATES because two critical dependencies are down |

@@ -21,7 +21,7 @@ const client = Client.forTestnet().setOperator(
   AccountId.fromString(await accountId(process.env.FUNDER_1_ACCOUNT!)),
   PrivateKey.fromStringECDSA(process.env.FUNDER_1_KEY!),
 );
-const receipt = await (await new TopicCreateTransaction().setTopicMemo("herd immunity audit trail").execute(client)).getReceipt(client);
+const receipt = await (await new TopicCreateTransaction().setTopicMemo("leash audit trail").execute(client)).getReceipt(client);
 const id = receipt.topicId!.toString();
 appendFileSync(".env", `\nHCS_TOPIC_ID=${id}\n`);
 console.log(`topic created: ${id} https://hashscan.io/testnet/topic/${id}`);

@@ -1,11 +1,11 @@
 import { NextResponse } from "next/server";
 import { normalize } from "viem/ens";
-import { REBUTTAL_REASONS, digest, holdsRebuttalRole, rebuttalMessage, verifyRebuttalSignature } from "@herd/guard";
+import { REBUTTAL_REASONS, digest, holdsRebuttalRole, rebuttalMessage, verifyRebuttalSignature } from "@leash/guard";
 import { PUBLIC_MODE, reader } from "../../../lib/server";
 
 const hex = (k: string) => (k.startsWith("0x") ? k : `0x${k}`) as `0x${string}`;
 
-/** Filed by the holder of the merchant's herd.rebuttal role. It only queues a probe; it never unblocks. */
+/** Filed by the holder of the merchant's leash.rebuttal role. It only queues a probe; it never unblocks. */
 export async function POST(req: Request) {
   if (PUBLIC_MODE) return NextResponse.json({ error: "rebuttal desk is not public" }, { status: 403 });
   const b = (await req.json()) as { ens: string; reason: string; filedAt: number; signer: `0x${string}`; signature: string };

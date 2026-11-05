@@ -14,8 +14,8 @@ for (const name of ["nick.eth", "test.eth"]) {
 const REGISTRAR = "0xf633e7fc17e2bbe0d0965d18ec1821dcb754a3d3" as const;
 const code = await sep.getCode({ address: REGISTRAR });
 console.log("ETHRegistrar code bytes:", code ? (code.length - 2) / 2 : 0);
-const avail = await sep.readContract({ address: REGISTRAR, abi: parseAbi(["function isAvailable(string) view returns (bool)"]), functionName: "isAvailable", args: ["herd-weather"] }).catch((e) => `error ${String(e).slice(0, 160)}`);
-console.log("herd-weather available:", avail);
+const avail = await sep.readContract({ address: REGISTRAR, abi: parseAbi(["function isAvailable(string) view returns (bool)"]), functionName: "isAvailable", args: ["leash-weather"] }).catch((e) => `error ${String(e).slice(0, 160)}`);
+console.log("leash-weather available:", avail);
 
 const ark = arkivClient({ chain: rabdi({ accessKey: process.env.ARKIV_ACCESS_KEY ?? "" }), transport: http() });
 console.log("arkiv block", await ark.getBlockNumber());

@@ -1,5 +1,5 @@
 // Registers real ENSv2 names on Sepolia, deploys one Permissioned Resolver per merchant,
-// sets herd.* records and grants key-scoped roles. Idempotent: rerun it after merchant URLs change.
+// sets leash.* records and grants key-scoped roles. Idempotent: rerun it after merchant URLs change.
 import "dotenv/config";
 import { appendFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
@@ -62,8 +62,8 @@ const save = (k: string, v: string) => {
 };
 
 const merchants = [
-  { id: "WEATHER", label: env.ENS_LABEL_WEATHER ?? "herd-weather", version: 0n, schema: "city,tempC,conditions", maxPrice: "0.25" },
-  { id: "LEMON", label: env.ENS_LABEL_LEMON ?? "herd-lemon", version: 1n, schema: "city,tempC,conditions", maxPrice: "0.25" },
+  { id: "WEATHER", label: env.ENS_LABEL_WEATHER ?? "leash-weather", version: 0n, schema: "city,tempC,conditions", maxPrice: "0.25" },
+  { id: "LEMON", label: env.ENS_LABEL_LEMON ?? "leash-lemon", version: 1n, schema: "city,tempC,conditions", maxPrice: "0.25" },
 ];
 
 if (!env.LEMON_REBUTTAL_KEY) save("LEMON_REBUTTAL_KEY", generatePrivateKey());
@@ -120,26 +120,26 @@ for (const m of merchants) {
   // 3. Records.
   const origin = env[`MERCHANT_${m.id}_URL`];
   const records: Record<string, string> = {
-    "herd.payTo": need(`MERCHANT_${m.id}_ACCOUNT`),
-    "herd.network": env.HEDERA_NETWORK ?? "hedera:testnet",
-    "herd.asset": env.HEDERA_USDC ?? "0.0.429274",
-    "herd.maxPrice": m.maxPrice,
-    "herd.schema": m.schema,
-    "herd.policyVersion": String(Math.floor(Date.now() / 1000)),
+    "leash.payTo": need(`MERCHANT_${m.id}_ACCOUNT`),
+    "leash.network": env.HEDERA_NETWORK ?? "hedera:testnet",
+    "leash.asset": env.HEDERA_USDC ?? "0.0.429274",
+    "leash.maxPrice": m.maxPrice,
+    "leash.schema": m.schema,
+    "leash.policyVersion": String(Math.floor(Date.now() / 1000)),
   };
   if (origin) {
-    records["herd.domains"] = origin;
-    records["herd.probeUrl"] = `${origin}/forecast`;
-  } else console.log(`  MERCHANT_${m.id}_URL not set yet: herd.domains left empty, rerun after deploying merchants`);
+    records["leash.domains"] = origin;
+    records["leash.probeUrl"] = `${origin}/forecast`;
+  } else console.log(`  MERCHANT_${m.id}_URL not set yet: leash.domains left empty, rerun after deploying merchants`);
   const calls = Object.entries(records).map(([key, value]) => encodeFunctionData({ abi: resolverAbi, functionName: "setText", args: [dns, key, value] }));
   await sent(await wallet.writeContract({ address: resolver, abi: resolverAbi, functionName: "multicall", args: [calls] }));
   console.log(`  ${name}: ${Object.keys(records).length} records set`);
 
-  // 4. Key-scoped role: this wallet can write herd.rebuttal and nothing else.
-  const resource = BigInt(keccak256(toBytes("herd.rebuttal")));
+  // 4. Key-scoped role: this wallet can write leash.rebuttal and nothing else.
+  const resource = BigInt(keccak256(toBytes("leash.rebuttal")));
   const held = await pub.readContract({ address: resolver, abi: resolverAbi, functionName: "hasRoles", args: [resource, ROLE_SET_TEXT, rebuttalHolder] });
   if (!held) {
-    const setter = encodeFunctionData({ abi: resolverAbi, functionName: "setText", args: ["0x", "herd.rebuttal", ""] });
+    const setter = encodeFunctionData({ abi: resolverAbi, functionName: "setText", args: ["0x", "leash.rebuttal", ""] });
     await sent(await wallet.writeContract({ address: resolver, abi: resolverAbi, functionName: "grantSetterRoles", args: [setter, rebuttalHolder] }));
   }
   const after = await pub.readContract({ address: resolver, abi: resolverAbi, functionName: "hasRoles", args: [resource, ROLE_SET_TEXT, rebuttalHolder] });

@@ -6,10 +6,10 @@ SDK `@arkiv-network/sdk` 1.0.1 on chain `rabdi`. The adapter is `packages/guard/
 
 A write never holds up a payment or a response.
 
-1. The guard pays over x402 and checks what was delivered: status, content type and the fields declared in `herd.schema`.
+1. The guard pays over x402 and checks what was delivered: status, content type and the fields declared in `leash.schema`.
 2. It adds a report to a local SQLite outbox. The dedupe key is agent plus transaction id, so one payment gives one report.
 3. The outbox worker waits for Mirror Node to show the payment, then takes the real payer and consensus time from there.
-4. The payer's Hedera key signs `herd.report:v1|ns|txId|payee|outcome|amountMicroUsd|arkivOwner`.
+4. The payer's Hedera key signs `leash.report:v1|ns|txId|payee|outcome|amountMicroUsd|arkivOwner`.
 5. The wallet creates the entity with its expiry. Failures retry with backoff.
 
 An item is claimed atomically before it is sent. Our first rehearsal wrote one report twice because two flushes raced, and the claim step fixed that.
