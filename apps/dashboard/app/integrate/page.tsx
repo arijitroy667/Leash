@@ -82,7 +82,7 @@ const TOOLS: [string, string, string][] = [
   ["leash_explain_decision", "decisionId", "the stored decision: reasons, factors, limits, latency"],
   ["leash_report_outcome", "txId, outcome", "queued, already-filed or refused; reports are filed automatically"],
   ["leash_list_pending_approvals", "none", "structured cards: merchant, standing, amount, score, reasons"],
-  ["leash_await_approval", "approvalId, timeoutMs", "approved, rejected, expired or still_pending; it cannot approve"],
+  ["leash_await_approval", "approvalId, timeoutMs (up to 55 s)","approved, rejected, expired or still_pending; it cannot approve"],
   ["leash_get_budget", "none", "session and daily budget, and spend per merchant"],
 ];
 

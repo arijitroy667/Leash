@@ -229,6 +229,8 @@ npx tsx apps/demo/src/show.ts all          # the demo scenes, in the filmed orde
 
 `apps/demo/src/failures.ts` causes failure modes F1 to F15 for real and checks each one, in three parts: `local`, `lemon` and `weather`. Run it as `LEASH_NAMESPACE=rehearsal-<name> npx tsx apps/demo/src/failures.ts <part>`, and give `lemon` `LEASH_LIVE_BLOCK_SEC=120,240,600` so its checks fit inside the blocks. It makes real payments and writes test evidence, so it refuses any namespace that is not `rehearsal-*`. The faults it cannot get from a public merchant come from real servers it starts on this machine: a facilitator that fails to settle, a merchant at a blocked payTo with no ENS name, a 402 made of instructions, and relays it really cuts.
 
+`pnpm mcp:live` tests the MCP server the way Claude Desktop runs it: it starts the server over stdio from outside the repo, calls all seven tools against the live merchants, Hedera testnet, Arkiv and ENS, then checks each payment on Mirror Node, each report on Arkiv and each decision on the HCS topic. The owner's side goes through the console's approval API with a throwaway owner key, in its own namespace and off the audit topic. It spends about $0.10 of test USDC from agent C and keeps local state in throwaway databases.
+
 The prober also runs alone with `npx tsx apps/demo/src/prober.ts`. Leave it off during the show: scene 5a runs its own probe, and an extra probe on entering probation would fail on lemon and start a hold early, which is correct behaviour but out of order for the demo.
 
 For scene 7, start the show with `SHOW_RELAY=1 ARKIV_RPC_URL=http://127.0.0.1:8765` so Arkiv traffic passes through the relay it cuts.

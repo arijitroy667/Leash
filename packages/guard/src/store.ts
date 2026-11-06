@@ -85,6 +85,14 @@ export class Store {
   markPaid(agent: string, hash: string, at: number) {
     this.db.prepare("INSERT OR REPLACE INTO challenges VALUES (?,?,?)").run(agent, hash, at);
   }
+  /**
+   * Atomic across calls and processes: the first call allowed to pay a challenge takes it, so a parallel twin decided at
+   * the same moment finds it taken. Outside the replay window the old mark no longer counts.
+   */
+  claimChallenge(agent: string, hash: string, at: number, windowSec: number): boolean {
+    const sql = "INSERT INTO challenges VALUES (?,?,?) ON CONFLICT(agent, hash) DO UPDATE SET paid_at=excluded.paid_at WHERE excluded.paid_at - challenges.paid_at > ?";
+    return Number(this.db.prepare(sql).run(agent, hash, at, windowSec).changes) === 1;
+  }
 
   recordSpend(e: { agent: string; session: string; merchant: string; resource: string; standing: string; amount: number; at: number }) {
     this.db.prepare("INSERT INTO spend_ledger VALUES (?,?,?,?,?,?,?)").run(e.agent, e.session, e.merchant, e.resource, e.standing, e.amount, e.at);

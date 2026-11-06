@@ -11,6 +11,8 @@ import { buildAgent, LeashDenied, LeashEscalated, REBUTTAL_REASONS, originOf, pa
 export const BODY_CAP = 4000;
 
 const json = (v: unknown) => ({ content: [{ type: "text" as const, text: JSON.stringify(v) }] });
+const usd = (n: number) => Math.round(n * 1e6) / 1e6;
+const score = (n: number) => Math.round(n * 10) / 10;
 
 /** No merchant text: the card is already enums, numbers and validated names. */
 export const safeCard = (a: Approval) => ({
@@ -52,9 +54,9 @@ export function buildServer(letter: string, agent: ReturnType<typeof buildAgent>
       return json({ status: "paid", httpStatus: res.status, txId: leash.txId, decisionId: leash.decisionId, delivered: leash.delivered, untrusted: true, body });
     } catch (e) {
       if (e instanceof LeashEscalated) {
-        return json({ status: "pending_approval", approvalId: e.approvalId, decisionId: e.decision.id, reasons: e.decision.reasons, standing: e.decision.standing, score: e.decision.score });
+        return json({ status: "pending_approval", approvalId: e.approvalId, decisionId: e.decision.id, reasons: e.decision.reasons, standing: e.decision.standing, score: score(e.decision.score) });
       }
-      if (e instanceof LeashDenied) return json({ status: "denied", decisionId: e.decision.id, reasons: e.decision.reasons, standing: e.decision.standing, score: e.decision.score });
+      if (e instanceof LeashDenied) return json({ status: "denied", decisionId: e.decision.id, reasons: e.decision.reasons, standing: e.decision.standing, score: score(e.decision.score) });
       return json({ status: "failed", reasons: ["payment-error"] }); // the error text may quote merchant data
     }
   });
@@ -118,8 +120,8 @@ export function buildServer(letter: string, agent: ReturnType<typeof buildAgent>
   });
 
   server.registerTool("leash_await_approval", {
-    description: "Wait for the owner's decision on an approval. Polls only and cannot approve. On approved, call leash_pay_request again with the same url.",
-    inputSchema: { approvalId: z.string().uuid(), timeoutMs: z.number().int().min(0).max(120000).default(30000) },
+    description: "Wait for the owner's decision on an approval, up to 55 s per call, which stays inside the usual 60 s MCP request timeout; call again while still_pending. Polls only and cannot approve. On approved, call leash_pay_request again with the same url.",
+    inputSchema: { approvalId: z.string().uuid(), timeoutMs: z.number().int().min(0).max(55000).default(30000) },
   }, async ({ approvalId, timeoutMs }) => json({ status: await guard.waitForApproval(approvalId, timeoutMs) }));
 
   server.registerTool("leash_get_budget", {
@@ -129,9 +131,9 @@ export function buildServer(letter: string, agent: ReturnType<typeof buildAgent>
     const b = guard.store.budget(guard.config.agent, guard.session, Date.now() / 1000);
     const { sessionBudget, dailyBudget } = guard.limits;
     return json({
-      session: { budget: sessionBudget, spent: b.sessionSpent, remaining: Math.max(0, sessionBudget - b.sessionSpent) },
-      daily: { budget: dailyBudget, spent: b.dailySpent, remaining: Math.max(0, dailyBudget - b.dailySpent) },
-      perMerchant: b.perMerchant,
+      session: { budget: sessionBudget, spent: usd(b.sessionSpent), remaining: usd(Math.max(0, sessionBudget - b.sessionSpent)) },
+      daily: { budget: dailyBudget, spent: usd(b.dailySpent), remaining: usd(Math.max(0, dailyBudget - b.dailySpent)) },
+      perMerchant: b.perMerchant.map((m) => ({ ...m, spent: usd(m.spent), remaining: m.remaining === null ? null : usd(m.remaining) })),
     });
   });
 

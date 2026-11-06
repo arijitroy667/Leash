@@ -15,6 +15,7 @@
     "hcs:create": "tsx apps/demo/src/setup/create-topic.ts",
     "ens:setup": "tsx apps/demo/src/setup/ens-setup.ts",
     "merchants": "tsx apps/demo/src/run-merchants.ts",
+    "mcp:live": "tsx packages/mcp/live.ts",
     "wallets:arkiv": "tsx apps/demo/src/setup/fund-arkiv.ts"
   },
   "devDependencies": {

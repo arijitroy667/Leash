@@ -186,6 +186,15 @@ describe("FR-02: the MCP tools", () => {
     expect(calls.paid).toBe(1);
   });
 
+  it("parallel calls for one challenge pay once", async () => {
+    const { agent, calls } = world(req());
+    const call = await connect(agent);
+    const results = await Promise.all([1, 2, 3].map(() => call("leash_pay_request", { url: URL_, maxUsd: 1 })));
+    expect(results.filter((r) => r.status === "paid")).toHaveLength(1);
+    expect(results.filter((r) => r.status === "denied").every((r) => r.reasons.includes("replay"))).toBe(true);
+    expect(calls.paid).toBe(1);
+  });
+
   it("refuses to pay above the caller's own ceiling, before anything is signed", async () => {
     const { agent, calls } = world(req());
     const call = await connect(agent);

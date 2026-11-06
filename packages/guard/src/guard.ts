@@ -219,7 +219,13 @@ export function createLeashGuard(cfg: GuardConfig) {
     client.onBeforePaymentCreation(async (hook: any) => {
       const ctx = als.getStore();
       const req = hook.selectedRequirements;
-      const { decision, declaration, challenge } = await evaluate(req, ctx);
+      let { decision, declaration, challenge } = await evaluate(req, ctx);
+      // Parallel calls for one challenge can all be allowed before any of them pays. Only the first takes it; the others
+      // decide again and now see a replay. ponytail: an allowed call that fails before signing keeps its mark, so a
+      // retry inside the 120 s window is refused as a replay; release the claim on that path if it ever matters.
+      if (decision.verdict === "ALLOW" && !ctx?.idempotent && !store.claimChallenge(cfg.agent, decision.challengeHash, decision.at, limits.replayWindowSec)) {
+        ({ decision, declaration, challenge } = await evaluate(req, ctx));
+      }
       record(decision);
       if (ctx) ctx.decision = decision;
       (hook as any).__declaration = declaration;
