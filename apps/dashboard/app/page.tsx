@@ -1,225 +1,116 @@
-"use client";
-import { useEffect, useState } from "react";
-import { Badge, MerchantCard, ProfileBanner, secondsLeft, short, usd } from "./ui";
+import Link from "next/link";
+import { Chip } from "./components/bits";
+import { REPO } from "./components/footer";
+import { Icon } from "./components/icons";
+import { LiveFeed, LiveStats } from "./components/live";
 
-const REASONS = ["outage", "config-error", "payment-mismatch", "dispute-customer-error", "compromised-key-rotated"];
+export const metadata = { title: { absolute: "Leash: payee safety for AI agents on x402" } };
 
-async function connect(): Promise<`0x${string}`> {
-  const eth = (window as any).ethereum;
-  if (!eth) throw new Error("No browser wallet found");
-  const [address] = await eth.request({ method: "eth_requestAccounts" });
-  return address;
-}
-// Hex is the form every wallet accepts for personal_sign, and each still shows it as readable text.
-const toHex = (text: string) => `0x${[...new TextEncoder().encode(text)].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
-const sign = (message: string, address: string): Promise<`0x${string}`> =>
-  (window as any).ethereum.request({ method: "personal_sign", params: [toHex(message), address] });
+const VERDICTS = [
+  { v: "ALLOW", head: "Pay now", body: "A known merchant, an amount inside its limit and a low risk score. The agent pays with no human in the loop." },
+  { v: "ESCALATE", head: "Ask the owner", body: "An unknown merchant, a price above the limit, a medium score, probation or an outage. Only the owner's wallet can release it." },
+  { v: "DENY", head: "Never pay this", body: "A blocked merchant, a spoofed payTo, a replay or a price above what the merchant declared. Nothing is signed." },
+];
 
-function ApprovalCard({ a, now, owner, onDone }: { a: any; now: number; owner: string | null; onDone: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const act = async (action: "approve" | "reject" | "reject-block") => {
-    setBusy(true);
-    setError("");
-    try {
-      let signature: string | undefined;
-      if (action === "approve") {
-        const address = await connect();
-        if (owner && address.toLowerCase() !== owner.toLowerCase()) throw new Error(`Connect the owner wallet ${short(owner, 6)}`);
-        signature = await sign(a.message, address);
-      }
-      const r = await fetch(`/api/approvals/${a.id}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, signature }) });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error);
-      onDone(); // the buttons stay disabled until the next read removes this card, so it cannot be clicked twice
-    } catch (e: any) {
-      setError(e.message ?? String(e));
-      setBusy(false);
-    }
-  };
-  const c = a.card;
+const STEPS = [
+  { t: "Identify", d: "The merchant's ENSv2 name declares its payTo, network, asset, maximum price and domains. A 402 that contradicts it is denied." },
+  { t: "Read the history", d: "Arkiv holds reports from every agent that paid this merchant, each signed by its payer and written only after settlement." },
+  { t: "Re-verify", d: "Each report is checked on Hedera Mirror Node: a real USDC transfer from that payer to that payee, in that amount." },
+  { t: "Decide", d: "A five-factor risk score, the merchant's standing, spend caps and hard rules give ALLOW, ESCALATE or DENY before anything is signed." },
+  { t: "Report", d: "After delivery the guard files its own signed report, and an audit message to Hedera Consensus Service." },
+];
+
+const WHY = [
+  { icon: "doc" as const, tone: "tone-lime", t: "Proof, not points", d: "A report counts only with a settled payment behind it. Forged, flipped and flooded rows are ignored, and one funding cluster can never block a merchant." },
+  { icon: "check" as const, tone: "tone-cyan", t: "Forgiving by design", d: "Blocks end, strikes are forgotten after 60 days, and a blocked merchant can rebut once, pass a paid probe and recover through probation." },
+  { icon: "shield" as const, tone: "tone-violet", t: "Fails safe", d: "If ENS, Arkiv or Mirror Node fails, payments escalate to the owner. An outage never turns into a silent ALLOW." },
+  { icon: "x" as const, tone: "tone-pink", t: "The LLM cannot approve", d: "There is no approve tool. Only the owner's signature, bound to one challenge for 120 seconds, releases an escalated payment." },
+];
+
+const TRACKS = [
+  { name: "Hedera x402", d: "Agents pay merchants in test USDC through the Blocky402 facilitator. Mirror Node gates every report, and every decision goes to an HCS audit topic." },
+  { name: "Arkiv", d: "The registry itself: wallet-owned entities with attribute queries, and expiry as the way a merchant is forgiven." },
+  { name: "ENSv2", d: "Merchants declare themselves in leash.* text records on a Permissioned Resolver, with a per-key role for rebuttals." },
+];
+
+export default function Landing() {
   return (
-    <div className="card">
-      <div className="row">
-        <strong>{c.merchant}</strong>
-        <span><Badge v={c.standing} /> <strong style={{ marginLeft: 6 }}>{usd(c.amountUsd)}</strong></span>
-      </div>
-      <dl className="kv">
-        <dt>Agent</dt><dd>{a.agent}</dd>
-        <dt>Score</dt><dd>{c.score}</dd>
-        <dt>Reasons</dt><dd>{(c.reasons as string[]).join(", ")}</dd>
-        <dt>Declared max</dt><dd>{c.declaredMaxUsd === null ? "No declaration" : `${usd(c.declaredMaxUsd)} (asks ${usd(c.amountUsd)})`}</dd>
-        <dt>24h cap left</dt><dd>{c.standing === "UNKNOWN" ? "No cap: always asks you" : usd(c.remainingCap24h)}</dd>
-        <dt>Expires in</dt><dd><strong>{secondsLeft(a.expiresAt, now)}</strong></dd>
-      </dl>
-      <div className="row" style={{ justifyContent: "flex-start" }}>
-        <button className="primary" disabled={busy} onClick={() => act("approve")}>Approve once</button>
-        <button disabled={busy} onClick={() => act("reject")}>Reject</button>
-        <button disabled={busy} onClick={() => act("reject-block")}>Reject and block locally</button>
-      </div>
-      {error && <p className="err" role="alert">{error}</p>}
-    </div>
-  );
-}
-
-function RebuttalDesk({ merchants, onDone }: { merchants: any[]; onDone: () => void }) {
-  const named = merchants.filter((m) => m.name);
-  const [ens, setEns] = useState("");
-  const [reason, setReason] = useState(REASONS[1]!);
-  const [evidence, setEvidence] = useState("");
-  const [msg, setMsg] = useState("");
-  const name = ens || named[0]?.name || "";
-  const m = named.find((x) => x.name === name);
-  const file = async () => {
-    setMsg("");
-    try {
-      const signer = await connect();
-      const filedAt = Math.floor(Date.now() / 1000);
-      const q = await fetch(`/api/rebuttal?${new URLSearchParams({ ens: name, reason, filedAt: String(filedAt), evidence })}`);
-      const { message, error } = await q.json();
-      if (!q.ok) throw new Error(error);
-      const signature = await sign(message, signer);
-      const r = await fetch("/api/rebuttal", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ens: name, reason, filedAt, signer, signature, evidence }) });
-      const j = await r.json();
-      if (!r.ok) throw new Error(j.error);
-      setMsg("Filed. A probe will run next; the rebuttal alone never unblocks.");
-      onDone();
-    } catch (e: any) {
-      setMsg(`Rejected: ${e.message ?? e}`);
-    }
-  };
-  return (
-    <section className="panel">
-      <h2>Rebuttal desk</h2>
-      <p className="muted">Sign as the wallet holding the merchant&apos;s <code>leash.rebuttal</code> role. One per block episode.</p>
-      <div className="row" style={{ justifyContent: "flex-start" }}>
-        <label>Merchant <select value={name} onChange={(e) => setEns(e.target.value)}>{named.map((m) => <option key={m.name}>{m.name}</option>)}</select></label>
-        <label>Reason <select value={reason} onChange={(e) => setReason(e.target.value)}>{REASONS.map((r) => <option key={r}>{r}</option>)}</select></label>
-        <label>Evidence URL or hash <input value={evidence} maxLength={500} onChange={(e) => setEvidence(e.target.value)} placeholder="optional, only its hash is stored" /></label>
-        <button onClick={file} disabled={!name}>Sign and file</button>
-      </div>
-      {msg && <p role="status">{msg}</p>}
-      {m && (
-        <p className="muted" style={{ marginBottom: 0 }}>
-          <Badge v={m.standing} /> {m.view?.rebuttalUsed ? "Rebuttal used this episode" : "Rebuttal available"}
-          {" · "}Last probe: {m.probes[0] ? <Badge v={m.probes[0].result} /> : "none"}
-          {m.view?.standing === "PROBATION" && <> · Recovery: {m.view.goodClusters} of 3 good clusters, {usd(m.view.D)} of $0.15 delivered</>}
-        </p>
-      )}
-    </section>
-  );
-}
-
-export default function Console() {
-  const [s, setS] = useState<any>(null);
-  const [error, setError] = useState("");
-  const [clock, setClock] = useState(Date.now() / 1000);
-
-  const load = async () => {
-    try {
-      const r = await fetch("/api/state", { cache: "no-store" });
-      if (r.status === 403) return void (location.href = "/explorer");
-      setS(await r.json());
-      setError("");
-    } catch {
-      setError("Lost connection to the console server. Pending approvals stay unpaid.");
-    }
-  };
-  useEffect(() => {
-    load();
-    const poll = setInterval(load, 2000);
-    const tick = setInterval(() => setClock(Date.now() / 1000), 500);
-    return () => { clearInterval(poll); clearInterval(tick); };
-  }, []);
-
-  if (!s) return <main>{error ? <p className="err">{error}</p> : <p className="muted">Loading live state…</p>}</main>;
-  const pending = s.approvals.filter((a: any) => a.status === "pending");
-  const deps = ["ens", "arkiv", "mirror", "facilitator", "hcs"];
-
-  return (
-    <main>
-      <div className="top">
-        <h1>Leash <span className="muted" style={{ fontWeight: 400 }}>owner console</span></h1>
-        <span className="muted">namespace <code>{s.namespace}</code> · <a href="/explorer">public explorer</a></span>
-      </div>
-      <ProfileBanner profile={s.profile} note={s.policyNote} />
-      {s.safeMode && <div className="banner alert" role="alert">Safe mode: two critical dependencies are down, so every payment escalates. Cached blocks still deny.</div>}
-      {error && <div className="banner alert" role="alert">{error}</div>}
-
-      <div className="grid">
-        <section className="panel">
-          <h2>Approvals {pending.length > 0 && `(${pending.length})`}</h2>
-          {pending.length === 0 && <p className="muted">Nothing waiting. Normal payments need no attention.</p>}
-          {pending.map((a: any) => <ApprovalCard key={a.id} a={a} now={clock} owner={s.owner} onDone={load} />)}
-          {s.approvals.filter((a: any) => a.status !== "pending").slice(0, 4).map((a: any) => (
-            <p key={a.id} className="muted" style={{ margin: "4px 0" }}><Badge v={a.status} /> {a.card.merchant} {usd(a.card.amountUsd)}</p>
-          ))}
-          {s.escalations.length > 0 && (
-            <p className="muted" style={{ marginBottom: 0 }}>
-              New escalations this hour: {s.escalations.map((e: any) => `${e.agent} ${e.count} of ${s.escalationLimit}`).join(" · ")}
-            </p>
-          )}
-        </section>
-
-        <section className="panel">
-          <h2>Health</h2>
-          <div className="health">
-            {deps.map((d) => {
-              const h = s.health.find((x: any) => x.dep === d);
-              return <span key={d} title={h?.detail || ""}><span className={`dot ${h && !h.ok ? "down" : ""}`} />{d}{!h && <span className="muted"> (unused)</span>}{h && !h.ok && <strong className="err"> down</strong>}{h?.recovering && <span className="muted"> recovering</span>}</span>;
-            })}
+    <>
+      <section className="hero" aria-labelledby="hero-title">
+        <div>
+          <span className="kicker">ETHGlobal Mumbai · Hedera x402 · Arkiv · ENSv2</span>
+          <h1 id="hero-title">Your agent pays. <span className="hl">Leash</span> checks who it is paying.</h1>
+          <p className="lead">A shared, proof-of-payment-backed safety registry and guard for AI agents paying over x402. One agent&apos;s loss protects every other agent, no verdict is permanent, and a merchant coming out of a block earns trust back through probation.</p>
+          <div className="cta">
+            <Link className="btn primary big" href="/demo"><Icon name="bolt" /> Watch it live</Link>
+            <Link className="btn big" href="/explorer">Explore merchants</Link>
+            <Link className="btn pink big" href="/integrate">Add it to your agent</Link>
           </div>
-          <p className="muted" style={{ marginBottom: 0 }}>
-            Outbox {s.outbox.depth} queued{s.topic && <> · <a href={`https://hashscan.io/testnet/topic/${s.topic}`}>HCS audit topic {s.topic}</a></>}
-          </p>
-          <p className="muted" style={{ marginBottom: 0 }}>
-            Decision latency {s.latency.n ? `p50 ${s.latency.p50} ms, p95 ${s.latency.p95} ms over the last ${s.latency.n}` : "not measured yet"}
-            {" · "}Probe spend today {usd(s.probeSpend.today)} of {usd(s.probeSpend.budget)}
-          </p>
-        </section>
+        </div>
+        <div className="glass panel" aria-label="Latest decisions">
+          <p className="label">Happening on Hedera now</p>
+          <LiveFeed limit={4} compact />
+        </div>
+      </section>
 
-        <RebuttalDesk merchants={s.merchants} onDone={load} />
+      <section className="section" aria-labelledby="verdicts">
+        <div className="section-head"><h2 id="verdicts">Three verdicts, before anything is signed</h2></div>
+        <div className="grid-3">
+          {VERDICTS.map((x) => (
+            <article key={x.v} className="glass verdict-card lift">
+              <h3><Chip v={x.v} /> {x.head}</h3>
+              <p className="muted" style={{ margin: 0 }}>{x.body}</p>
+            </article>
+          ))}
+        </div>
+      </section>
 
-        <section className="panel full">
-          <h2>Merchants</h2>
-          <div className="grid">{s.merchants.map((m: any) => <MerchantCard key={m.key} m={m} now={clock} />)}</div>
-          {s.merchants.length === 0 && <p className="muted">No merchants configured yet. Run pnpm ens:setup.</p>}
-        </section>
+      <section className="section" aria-labelledby="how">
+        <div className="section-head"><h2 id="how">How a payment is checked</h2><Link className="btn" href="/docs">Read the docs <Icon name="arrow" /></Link></div>
+        <ol className="steps">
+          {STEPS.map((s) => <li key={s.t} className="glass"><h3>{s.t}</h3><p className="muted" style={{ margin: 0 }}>{s.d}</p></li>)}
+        </ol>
+      </section>
 
-        <section className="panel full">
-          <h2>Decision log</h2>
-          {s.topic && <p className="muted" style={{ marginTop: 0 }}>Each decision is also published to <a href={`https://hashscan.io/testnet/topic/${s.topic}`}>HCS audit topic {s.topic}</a>.</p>}
-          {s.decisions.length === 0 && <p className="muted">No decisions yet.</p>}
-          {s.decisions.length > 0 && (
-            <div className="scroll">
-              <table>
-                <thead><tr><th>Time</th><th>Agent</th><th>Verdict</th><th>Merchant</th><th>Standing</th><th>Amount</th><th>R</th><th>Reasons</th></tr></thead>
-                <tbody>
-                  {s.decisions.map((d: any) => (
-                    <tr key={d.id}>
-                      <td className="mono">{new Date(d.at * 1000).toLocaleTimeString()}</td>
-                      <td>{d.agent}</td>
-                      <td><Badge v={d.verdict} /></td>
-                      <td>{d.merchantKey}</td>
-                      <td>{d.standing}</td>
-                      <td>{usd(d.amountUsd)}</td>
-                      <td>{d.score.toFixed(1)}</td>
-                      <td className="muted">
-                        <details>
-                          <summary>{d.reasons.join(", ") || "none"}</summary>
-                          bad {d.factors.bad.toFixed(2)} · loss {d.factors.loss.toFixed(2)} · trust {d.factors.trust.toFixed(2)} · exposure {d.factors.exposure.toFixed(2)} · identity {d.factors.identity.toFixed(2)}
-                          <br />auto limit {usd(d.limits.autoApprove)} · cap {usd(d.limits.cap24h)} · used {usd(d.limits.capUsed24h)}
-                          {d.degraded && <><br />degraded: {d.degraded.dependency}, {Math.round(d.degraded.staleSec)} s stale</>}
-                        </details>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-      </div>
-    </main>
+      <section className="section" aria-labelledby="live-registry">
+        <div className="section-head">
+          <div>
+            <h2 id="live-registry">The registry, live</h2>
+            <p className="muted" style={{ margin: 0 }}>These counts fall as entities expire: on Arkiv, expiry is how the registry forgives.</p>
+          </div>
+          <Link className="btn" href="/explorer">Open the explorer <Icon name="arrow" /></Link>
+        </div>
+        <LiveStats />
+      </section>
+
+      <section className="section" aria-labelledby="why">
+        <div className="section-head"><h2 id="why">Why it holds up</h2></div>
+        <div className="grid-2">
+          {WHY.map((w) => (
+            <article key={w.t} className={`glass panel lift ${w.tone}`}>
+              <h3 className="row start" style={{ gap: 10 }}><Icon name={w.icon} /> {w.t}</h3>
+              <p style={{ margin: 0 }}>{w.d}</p>
+            </article>
+          ))}
+        </div>
+        <p className="muted" style={{ marginTop: 16 }}>All fifteen failure modes in the spec were caused for real on the testnets, from spoofed merchants to cut connections and flooded registries. <Link href="/docs#failures">See what was tested</Link>.</p>
+      </section>
+
+      <section className="section" aria-labelledby="tracks">
+        <div className="section-head"><h2 id="tracks">Built on</h2></div>
+        <div className="grid-3">
+          {TRACKS.map((t) => <article key={t.name} className="glass panel"><h3>{t.name}</h3><p className="muted" style={{ margin: 0 }}>{t.d}</p></article>)}
+        </div>
+      </section>
+
+      <section className="section glass panel tone-lime" aria-labelledby="start" style={{ padding: "28px 22px" }}>
+        <h2 id="start">Put your agent on a leash</h2>
+        <p className="lead">One SDK call wraps your x402 client, or run the MCP server and let your LLM pay through it. Either way, the owner stays in charge.</p>
+        <div className="cta">
+          <Link className="btn primary big" href="/integrate">SDK and MCP setup</Link>
+          <a className="btn big" href={REPO} target="_blank" rel="noreferrer">Source on GitHub</a>
+        </div>
+      </section>
+    </>
   );
 }

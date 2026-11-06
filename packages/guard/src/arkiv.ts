@@ -121,6 +121,27 @@ export class Arkiv {
     return res.entities.map(toReport);
   }
 
+  /**
+   * Payees named in the newest report rows, for listing every merchant in the registry. A row is only a claim: each
+   * listed payee's standing still comes from the verified read, and a name a row claims is checked against ENS.
+   */
+  async recentPayees(maxRows = 500): Promise<{ payee: string; ens: string }[]> {
+    const seen = new Map<string, string>();
+    for (let offset = 0; offset < maxRows; offset += PAGE) {
+      const page = await this.pub.select().from(ReportSchema).where(eq("ns", this.ns)).orderBy(desc("consensusTs")).limit(PAGE).offset(offset).fetch();
+      for (const r of page.entities.map(toReport)) if (!seen.has(r.payee) || (!seen.get(r.payee) && r.ens)) seen.set(r.payee, r.ens);
+      if (page.entities.length < PAGE) break;
+    }
+    return [...seen].map(([payee, ens]) => ({ payee, ens }));
+  }
+
+  /** Live entity counts in this registry. They fall as entities expire, which is the forgiveness mechanism at work. */
+  async counts() {
+    const n = (schema: typeof ReportSchema | typeof ProbeSchema | typeof RebuttalSchema) => this.pub.count().from(schema).where(eq("ns", this.ns)).fetch().then(Number);
+    const [reports, probes, rebuttals] = await Promise.all([n(ReportSchema), n(ProbeSchema), n(RebuttalSchema)]);
+    return { reports, probes, rebuttals };
+  }
+
   /** Whether this writer already filed a report for this payment, so a retried delivery never writes it twice (NFR-08). */
   async hasReport(txId: string, creator: string): Promise<boolean> {
     const res = await this.pub.select().from(ReportSchema)

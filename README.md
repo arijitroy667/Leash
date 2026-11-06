@@ -16,7 +16,7 @@ An agent's payment gets one of three verdicts before anything is signed:
 
 **Public explorer:** https://leash-explorer.vercel.app/explorer
 
-It reads ENSv2, Arkiv and Hedera Mirror Node directly, and holds no keys or database. The registry menu switches between the demo registry (live profile, entities expire in 18 minutes) and `mumbai-prod` (production profile, 60-day expiry).
+The site also has a landing page, docs, SDK and MCP setup, and a live demo page showing the guards' audit trail as it lands on Hedera. It reads ENSv2, Arkiv and Hedera Mirror Node directly, and holds no keys or database. The registry menu switches between the demo registry (live profile, entities expire in 18 minutes) and `mumbai-prod` (production profile, 60-day expiry).
 
 **Query the registry yourself**, with no key or wallet:
 
@@ -221,7 +221,7 @@ pnpm ens:setup            # real ENSv2 names, resolvers, records and roles on Se
 Then, each in its own terminal:
 
 ```bash
-pnpm --filter @leash/dashboard dev          # owner console on :3100
+pnpm --filter @leash/dashboard dev          # the site on :3100; the owner console is /console
 npx tsx apps/demo/src/show.ts all          # the demo scenes, in the filmed order
 ```
 
@@ -258,13 +258,15 @@ A default `x402Client` has its own spend controls, which reject some challenges 
 {
   "mcpServers": {
     "leash": {
-      "command": "npx",
-      "args": ["tsx", "packages/mcp/src/server.ts"],
-      "env": { "LEASH_ENV_FILE": ".env", "LEASH_MCP_AGENT": "C" }
+      "command": "pnpm",
+      "args": ["--dir", "/path/to/Leash", "exec", "tsx", "packages/mcp/src/server.ts"],
+      "env": { "LEASH_MCP_AGENT": "C" }
     }
   }
 }
 ```
+
+`pnpm --dir` starts the server in the repo, so it finds `.env` and shares the console's database, and an approval signed there reaches it. On Windows, use `"command": "cmd"` with `"/c", "pnpm"` at the start of `args`. The site's `/integrate` page has this and the Claude Code command.
 
 ## Repo
 

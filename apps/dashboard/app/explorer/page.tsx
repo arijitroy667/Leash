@@ -1,61 +1,79 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { Skeleton } from "../components/bits";
+import { HealthLegend } from "../components/health-meter";
+import { usePoll } from "../components/live";
+import { LazyTile, useClock, type Entry } from "../components/merchant-tile";
 import { MerchantCard, ProfileBanner } from "../ui";
 
 export default function Explorer() {
-  const [data, setData] = useState<any>(null);
-  const [key, setKey] = useState("");
-  const [active, setActive] = useState("");
+  const now = useClock();
   const [ns, setNs] = useState("");
-  const [error, setError] = useState("");
-  const [clock, setClock] = useState(Date.now() / 1000);
-
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const q = new URLSearchParams();
-        if (active) q.set("key", active);
-        if (ns) q.set("ns", ns);
-        const r = await fetch(`/api/explorer?${q}`, { cache: "no-store" });
-        const j = await r.json();
-        setData(j);
-        setError(j.error ?? "");
-      } catch {
-        setError("Could not reach the registry. Try again in a moment.");
-      }
-    };
-    load();
-    const poll = setInterval(load, 4000);
-    const tick = setInterval(() => setClock(Date.now() / 1000), 500);
-    return () => { clearInterval(poll); clearInterval(tick); };
-  }, [active, ns]);
+  const [query, setQuery] = useState("");
+  const [active, setActive] = useState("");
+  const list = usePoll<any>(`/api/explorer${ns ? `?ns=${encodeURIComponent(ns)}` : ""}`, 20000);
+  const found = usePoll<any>(active ? `/api/explorer?key=${encodeURIComponent(active)}${ns ? `&ns=${encodeURIComponent(ns)}` : ""}` : null, 8000);
+  const d = list.data;
+  const registry = ns || d?.namespace || "";
+  const entries: Entry[] = d?.list ?? [];
 
   return (
-    <main>
-      <div className="top">
-        <h1>Leash <span className="muted" style={{ fontWeight: 400 }}>merchant explorer</span></h1>
-        {data?.namespaces?.length > 1 ? (
-          <label className="muted">Registry{" "}
-            <select value={data.namespace} onChange={(e) => setNs(e.target.value)}>
-              {data.namespaces.map((n: any) => <option key={n.ns} value={n.ns}>{n.ns} ({n.profile})</option>)}
+    <div>
+      <div className="section-head">
+        <div>
+          <span className="kicker">Public · read-only · live</span>
+          <h1 style={{ marginTop: 12 }}>Merchant explorer</h1>
+          <p className="lead">Every merchant in the registry, read live from ENSv2 on Sepolia, Arkiv and Hedera Mirror Node. Each report is re-verified against its real payment before it counts; a row with no proof shows as ignored.</p>
+        </div>
+        {d?.namespaces?.length > 1 && (
+          <div className="field">
+            <label htmlFor="registry">Registry</label>
+            <select id="registry" value={registry} onChange={(e) => { setNs(e.target.value); setActive(""); }}>
+              {d.namespaces.map((n: any) => <option key={n.ns} value={n.ns}>{n.ns} ({n.profile === "live" ? "live clock" : "production"})</option>)}
             </select>
-          </label>
-        ) : data && <span className="muted">registry namespace <code>{data.namespace}</code></span>}
+          </div>
+        )}
       </div>
-      {data && <ProfileBanner profile={data.profile} note={data.policyNote} />}
-      <p className="muted">
-        Live from ENSv2 on Sepolia, Arkiv and Hedera Mirror Node. Every report is re-verified here against its real payment before it counts. A report with no proof shows as ignored.
-      </p>
-      <form className="row" style={{ justifyContent: "flex-start", marginBottom: 16 }} onSubmit={(e) => { e.preventDefault(); setActive(key.trim()); }}>
-        <label htmlFor="q" className="muted">ENS name, domain or Hedera account</label>
-        <input id="q" value={key} onChange={(e) => setKey(e.target.value)} placeholder="leash-lemon.eth" />
-        <button type="submit">Look up</button>
-        {active && <button type="button" onClick={() => { setKey(""); setActive(""); }}>Show all</button>}
+
+      {d && <ProfileBanner profile={d.profile} note={d.policyNote} />}
+
+      <form className="glass panel search" role="search" onSubmit={(e) => { e.preventDefault(); setActive(query.trim()); }}>
+        <div className="field" style={{ flex: "1 1 280px" }}>
+          <label htmlFor="q">Look up an ENS name, domain or Hedera account</label>
+          <input id="q" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="leash-lemon.eth" autoComplete="off" spellCheck={false} />
+        </div>
+        <button type="submit" className="primary">Look up</button>
+        {active && <button type="button" onClick={() => { setQuery(""); setActive(""); }}>Show all</button>}
       </form>
-      {error && <p className="err" role="alert">{error}</p>}
-      {!data && !error && <p className="muted">Reading live registry…</p>}
-      <div className="grid">{data?.merchants?.map((m: any) => <MerchantCard key={m.key} m={m} now={clock} />)}</div>
-      {data?.merchants?.length === 0 && <p className="muted">No merchants found.</p>}
-    </main>
+
+      <div className="glass panel" style={{ marginTop: 18 }}>
+        <p className="label">How to read the health bar</p>
+        <HealthLegend />
+        <p className="muted" style={{ margin: "10px 0 0", fontSize: "0.88rem" }}>Health is 100 minus the risk score Leash would give a ${d?.healthRefUsd ?? 0.005} payment now, from verified evidence only. Five levels follow the decision bands.</p>
+      </div>
+
+      <div className="section" style={{ marginTop: 26 }} aria-live="polite">
+        {active ? (
+          <>
+            <h2 style={{ fontSize: "1.3rem" }}>Result for <code>{active}</code></h2>
+            {found.error && <p className="err" role="alert">{found.error}</p>}
+            {!found.data && !found.error && <Skeleton lines={4} />}
+            <div className="tiles">{found.data?.merchants?.map((m: any) => <MerchantCard key={m.key} m={m} now={now} />)}</div>
+            {found.data?.merchants?.length === 0 && <p className="muted">Nothing found for that. Try an ENS name such as leash-weather.eth, a merchant domain, or an account id.</p>}
+          </>
+        ) : (
+          <>
+            <div className="row" style={{ marginBottom: 14 }}>
+              <h2 style={{ fontSize: "1.3rem", margin: 0 }}>{entries.length ? `${entries.length} merchants in ${registry}` : "Merchants"}</h2>
+              <span className="muted" style={{ fontSize: "0.88rem" }}>Cards load as you scroll and refresh while on screen</span>
+            </div>
+            {list.error && <p className="err" role="alert">{list.error}</p>}
+            {!d && !list.error && <div className="tiles">{[0, 1, 2].map((k) => <div key={k} className="card tile"><Skeleton lines={5} /></div>)}</div>}
+            {d && entries.length === 0 && <p className="muted">No merchants in this registry right now. On the live clock, entities expire 18 minutes after they are written; on production, after 60 days.</p>}
+            <div className="tiles">{entries.map((e) => <LazyTile key={`${registry}:${e.key}`} entry={e} ns={registry} now={now} />)}</div>
+          </>
+        )}
+      </div>
+    </div>
   );
 }
