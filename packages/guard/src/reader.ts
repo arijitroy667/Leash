@@ -67,6 +67,6 @@ export function buildReader(env: NodeJS.ProcessEnv = process.env) {
       }
     }
   }
-  return { params, usdc, ns, store, mirror, arkiv, ens, client, read, audit, flushAudit };
+  return { params, usdc, ns, store, mirror, arkiv, ens, client, prober, read, audit, flushAudit };
 }
 

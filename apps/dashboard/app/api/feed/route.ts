@@ -26,6 +26,7 @@ function toItem(m: any) {
   return {
     seq: Number(m.sequence_number),
     at: Number(m.consensus_timestamp),
+    ts: /^\d{1,12}\.\d{1,9}$/.test(String(m.consensus_timestamp)) ? String(m.consensus_timestamp) : null,
     payer: String(m.payer_account_id),
     type,
     agent: typeof p.agent === "string" && /^agent-[a-z0-9]{1,4}$/.test(p.agent) ? p.agent : null,

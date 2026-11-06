@@ -4,7 +4,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { Icon, Logo } from "./icons";
 
-const LINKS: [string, string][] = [["/demo", "Live demo"], ["/explorer", "Explorer"], ["/docs", "Docs"], ["/integrate", "Integrate"]];
+const LINKS: [string, string][] = [["/demo", "Live demo"], ["/explorer", "Explorer"], ["/tracks", "Partner tracks"], ["/docs", "Docs"], ["/integrate", "Integrate"]];
 
 function ThemeToggle() {
   const [dark, setDark] = useState<boolean | null>(null);

@@ -181,6 +181,13 @@ export class Arkiv {
     }));
   }
 
+  /** Every entity of one kind in this registry, newest first, with its key, so a page can link each write to the explorer. */
+  async recent(kind: "report" | "probe" | "rebuttal", limit = PAGE) {
+    const [schema, by] = kind === "report" ? [ReportSchema, "consensusTs"] : kind === "probe" ? [ProbeSchema, "consensusTs"] : [RebuttalSchema, "filedAt"];
+    const res = await (this.pub.select().from(schema as typeof ReportSchema).where(eq("ns", this.ns)) as any).orderBy(desc(by)).limit(limit).fetch();
+    return res.entities as any[];
+  }
+
   async writeReport(key: `0x${string}`, r: Omit<ReportRow, "owner" | "v">, ttlSec: number) {
     return this.writer(key).createEntity(ReportSchema, {
       ns: this.ns, payee: r.payee, domain: r.domain, ens: r.ens, outcome: r.outcome, txId: r.txId, payer: r.payer, payerSig: r.payerSig,
@@ -200,6 +207,11 @@ export class Arkiv {
       ns: this.ns, payee: r.payee, ens: r.ens, reason: r.reason, evidenceHash: r.evidenceHash, episodeStart: u64(BigInt(Math.floor(r.episodeStart))),
       filedAt: u64(BigInt(Math.floor(r.filedAt))), signer: r.signer, signature: hexToBytes(r.signature as `0x${string}`), v: i32(REPORT_VERSION),
     }, { expiration: ExpirationTime.fromSeconds(ttlSec) });
+  }
+
+  /** The SDK's BLOCK_TIME is 2 s, so an entity has ($expiresAt - this) * 2 seconds left. */
+  blockNumber() {
+    return this.pub.getBlockNumber();
   }
 
   async health(): Promise<boolean> {
