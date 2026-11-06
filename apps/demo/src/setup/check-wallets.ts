@@ -31,7 +31,7 @@ async function hedera(name: string) {
 
 console.log("Hedera");
 const rows = [];
-for (const n of ["FUNDER_1", "FUNDER_2", "FUNDER_3", "AGENT_A", "AGENT_B", "AGENT_C", "PROBER", "MERCHANT_WEATHER", "MERCHANT_LEMON", "MERCHANT_SPOOF", "MERCHANT_ROGUE"]) {
+for (const n of ["FUNDER_1", "FUNDER_2", "FUNDER_3", "AGENT_A", "AGENT_B", "AGENT_C", "PROBER", "MERCHANT_WEATHER", "MERCHANT_LEMON", "MERCHANT_SPOOF", "MERCHANT_ROGUE", "MERCHANT_INVOICE"]) {
   rows.push(await hedera(n));
 }
 const a = rows.find((r) => r?.name === "AGENT_A");

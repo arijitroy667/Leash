@@ -49,7 +49,7 @@ async function associate(client: Client, id: AccountId, key: PrivateKey) {
 // [env prefix, funder, starting HBAR]
 const plan = [
   ["AGENT_A", f1, 20], ["AGENT_B", f2, 20], ["AGENT_C", f3, 20], ["PROBER", f1, 20],
-  ["MERCHANT_WEATHER", f1, 5], ["MERCHANT_LEMON", f1, 5], ["MERCHANT_SPOOF", f1, 5], ["MERCHANT_ROGUE", f2, 5],
+  ["MERCHANT_WEATHER", f1, 5], ["MERCHANT_LEMON", f1, 5], ["MERCHANT_SPOOF", f1, 5], ["MERCHANT_ROGUE", f2, 5], ["MERCHANT_INVOICE", f1, 5],
 ] as const;
 
 for (const f of [f1, f2, f3]) await associate(f.client, f.id, f.key);

@@ -62,10 +62,13 @@ const save = (k: string, v: string) => {
   env[k] = v;
 };
 
+// ENS_ONLY=INVOICE sets up just that merchant and leaves the others' records untouched.
+const only = env.ENS_ONLY?.split(",").map((s) => s.trim().toUpperCase());
 const merchants = [
-  { id: "WEATHER", label: env.ENS_LABEL_WEATHER ?? "leash-weather", version: 0n, schema: "city,tempC,conditions", maxPrice: "0.25" },
-  { id: "LEMON", label: env.ENS_LABEL_LEMON ?? "leash-lemon", version: 1n, schema: "city,tempC,conditions", maxPrice: "0.25" },
-];
+  { id: "WEATHER", label: env.ENS_LABEL_WEATHER ?? "leash-weather", version: 0n, schema: "city,tempC,conditions", maxPrice: "0.25", probePath: "/forecast" },
+  { id: "LEMON", label: env.ENS_LABEL_LEMON ?? "leash-lemon", version: 1n, schema: "city,tempC,conditions", maxPrice: "0.25", probePath: "/forecast" },
+  { id: "INVOICE", label: env.ENS_LABEL_INVOICE ?? "leash-invoice", version: 2n, schema: "invoiceId,total,currency", maxPrice: "0.25", probePath: "/invoice" },
+].filter((m) => !only || only.includes(m.id));
 
 if (!env.LEMON_REBUTTAL_KEY) save("LEMON_REBUTTAL_KEY", generatePrivateKey());
 const rebuttalHolder = privateKeyToAccount(hex(env.LEMON_REBUTTAL_KEY!)).address;
@@ -130,7 +133,7 @@ for (const m of merchants) {
   };
   if (origin) {
     records["leash.domains"] = origin;
-    records["leash.probeUrl"] = `${origin}/forecast`;
+    records["leash.probeUrl"] = `${origin}${m.probePath}`;
   } else console.log(`  MERCHANT_${m.id}_URL not set yet: leash.domains left empty, rerun after deploying merchants`);
   const calls = Object.entries(records).map(([key, value]) => encodeFunctionData({ abi: resolverAbi, functionName: "setText", args: [dns, key, value] }));
   await sent(await wallet.writeContract({ address: resolver, abi: resolverAbi, functionName: "multicall", args: [calls] }));

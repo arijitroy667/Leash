@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 /** Public: the rebuttal wallet that holds ROLE_SET_TEXT on lemon's resolver for the leash.rebuttal key (README). */
 const REBUTTAL_SIGNER = (process.env.LEASH_REBUTTAL_SIGNER ?? "0xa51B1B8EC0608FA2DafEC4E3D5D67a7348C0B5d7") as `0x${string}`;
 const ROLES = parseAbi(["function hasRoles(uint256 resource, uint256 roleBitmap, address account) view returns (bool)"]);
-const MERCHANTS = ["weather", "lemon", "spoof", "rogue"] as const;
+const MERCHANTS = ["weather", "lemon", "spoof", "rogue", "invoice"] as const;
 const merchantUrl = (m: string) => process.env[`MERCHANT_${m.toUpperCase()}_URL`] ?? `https://leash-merchant-${m}.vercel.app`;
 const str = (x: any) => String(x?.value ?? "");
 const num = (x: any) => Number(x?.value ?? 0);

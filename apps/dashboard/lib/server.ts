@@ -39,7 +39,7 @@ export const ACCOUNT_ID = /^0\.0\.\d+$/;
 export function knownMerchants(): { name: string | null; payTo?: string }[] {
   const e = process.env;
   const list: { name: string | null; payTo?: string }[] = [];
-  for (const name of [e.ENS_NAME_WEATHER, e.ENS_NAME_LEMON]) if (name) list.push({ name });
+  for (const name of [e.ENS_NAME_WEATHER, e.ENS_NAME_LEMON, e.ENS_NAME_INVOICE]) if (name) list.push({ name });
   for (const payTo of [e.MERCHANT_SPOOF_ACCOUNT, e.MERCHANT_ROGUE_ACCOUNT]) if (payTo) list.push({ name: null, payTo });
   return list;
 }

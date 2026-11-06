@@ -3,7 +3,7 @@ import "dotenv/config";
 import { serve } from "@hono/node-server";
 import { buildMerchant, configFromEnv, type MerchantKind } from "@leash/merchant";
 
-const kinds: MerchantKind[] = ["weather", "lemon", "spoof", "rogue"];
+const kinds: MerchantKind[] = ["weather", "lemon", "spoof", "rogue", "invoice"];
 kinds.forEach((kind, i) => {
   const port = 4801 + i;
   const cfg = configFromEnv({ ...process.env, MERCHANT_KIND: kind });

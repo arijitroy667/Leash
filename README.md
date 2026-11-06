@@ -43,6 +43,7 @@ Every link is a real testnet event. The lemon and probe payments come from a reh
 | Two agents' payments to lemon, which delivered junk. Their bad reports block lemon in `mumbai-prod` | `0.0.7162784@1793932584.042346265` and `0.0.7162784@1793932587.359527068` | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793932584-042346265), [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793932587-359527068) |
 | Probe payment after a rebuttal | `0.0.7162784@1793896292.479701920` | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793896292-479701920) |
 | An MCP tool call that paid with no human (`pnpm mcp:live`) | `0.0.7162784@1793928541.149077514` | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793928541-149077514) |
+| Two agents pay the invoicing merchant, which delivers; their good reports are in `mumbai-prod` | `0.0.7162784@1793982862.774261681` and `0.0.7162784@1793982891.724302854` | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793982862-774261681), [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793982891-724302854) |
 | An escalated payment, paid once the owner's signature approved it | `0.0.7162784@1793928699.604292744` | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793928699-604292744) |
 | HCS audit topic `0.0.11326849`, with every decision, report, approval, probe and rebuttal | | [HashScan](https://hashscan.io/testnet/topic/0.0.11326849) |
 
@@ -69,6 +70,7 @@ The two funder accounts write reports when they stand in for agents A and B, in 
 | --- | --- | --- | --- |
 | `leash-weather.eth` | [tx](https://sepolia.etherscan.io/tx/0xfb221a6208ae20faf5b6730dc08acfeac71b2f6bad80715aaff814ce36bf0427) | [`0x27B85f92dF5975ABda37fFD14F0ad56b87BC00F2`](https://sepolia.etherscan.io/address/0x27B85f92dF5975ABda37fFD14F0ad56b87BC00F2) | Honest merchant |
 | `leash-lemon.eth` | [tx](https://sepolia.etherscan.io/tx/0xc5ff82de88f34612b4117b3dbd04461e43933e3ef45c288128296e3632887981) | [`0x7f77622E13638dEd82B78C277d2B825d37E50300`](https://sepolia.etherscan.io/address/0x7f77622E13638dEd82B78C277d2B825d37E50300) | Takes payment and returns junk, on purpose |
+| `leash-invoice.eth` | [tx](https://sepolia.etherscan.io/tx/0x74588838f89828e84536f2775b21275e2c90eb63efde8a6e01531577a97ec115) | [`0x530DD7A1E3671291a70212e98DF5318713098456`](https://sepolia.etherscan.io/address/0x530DD7A1E3671291a70212e98DF5318713098456) | Honest invoicing API: `/invoice`, `/tax`, `/batch`, schema `invoiceId,total,currency` |
 
 **ENSv2 features we use**, all on ENS's own Sepolia deployments:
 
