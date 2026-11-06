@@ -40,6 +40,8 @@ export function CodeBlock({ code, label = "Code", lang }: { code: string; label?
 }
 
 export const HASHSCAN = "https://hashscan.io/testnet";
+/** Arkiv's Rabdi explorer: an entity's page shows its attributes and the transaction that wrote it. */
+export const arkivEntity = (key: string) => `https://rabdi.explorer.arkiv.network/entity/${key}`;
 export const hashscanTx = (id: string) => {
   const [acct, time = ""] = id.split("@");
   const [sec, nano = "0"] = time.split(".");

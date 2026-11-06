@@ -50,6 +50,8 @@ export const ARKIV_PAGE = 100;
 const PAGE = ARKIV_PAGE;
 
 export interface ReportRow {
+  /** The Arkiv entity key, to link the row on the explorer. */
+  key?: string;
   owner: string;
   payee: string;
   ens: string;
@@ -64,6 +66,7 @@ export interface ReportRow {
   v: number;
 }
 export interface ProbeRow {
+  key?: string;
   owner: string;
   payee: string;
   result: "pass" | "fail";
@@ -86,7 +89,7 @@ export interface RebuttalRow {
 const num = (x: { value: bigint | number | string }) => Number(x.value);
 const txt = (x: { value: unknown }) => String(x.value);
 const toReport = (r: any): ReportRow => ({
-  owner: r.$owner, payee: txt(r.payee), ens: txt(r.ens), domain: txt(r.domain), outcome: txt(r.outcome) as "good" | "bad",
+  key: r.$key, owner: r.$owner, payee: txt(r.payee), ens: txt(r.ens), domain: txt(r.domain), outcome: txt(r.outcome) as "good" | "bad",
   txId: txt(r.txId), payer: txt(r.payer), payerSig: txt(r.payerSig), consensusTs: num(r.consensusTs),
   amountMicroUsd: num(r.amountMicroUsd), reason: txt(r.reason), v: num(r.v),
 });
@@ -166,7 +169,7 @@ export class Arkiv {
       .where(and(eq("ns", this.ns), eq("payee", payee))).createdBy(creator as `0x${string}`)
       .orderBy(desc("consensusTs")).limit(PAGE).fetch()));
     return pages.flatMap((p) => p.entities).map((r: any) => ({
-      owner: String(r.$creator), payee: txt(r.payee), result: txt(r.result) as "pass" | "fail", txId: txt(r.txId),
+      key: r.$key, owner: String(r.$creator), payee: txt(r.payee), result: txt(r.result) as "pass" | "fail", txId: txt(r.txId),
       consensusTs: num(r.consensusTs), amountMicroUsd: num(r.amountMicroUsd),
     }));
   }

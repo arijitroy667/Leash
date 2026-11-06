@@ -82,8 +82,8 @@ export interface MerchantRow {
   standing: string;
   view: StandingView | null;
   health: ReturnType<typeof healthOf> | null;
-  reports: { outcome: string; txId: string; payer: string; amountUsd: number; reason: string; valid: boolean; why?: string; consensusTs: number; owner: string }[];
-  probes: { result: string; txId: string; consensusTs: number }[];
+  reports: { key?: string; outcome: string; txId: string; payer: string; amountUsd: number; reason: string; valid: boolean; why?: string; consensusTs: number; owner: string }[];
+  probes: { key?: string; result: string; txId: string; consensusTs: number }[];
   rebuttals: { reason: string; filedAt: number; signer: string }[];
   error?: string;
 }
@@ -104,10 +104,10 @@ export async function merchantRow(key: string, payToHint?: string, r: Reader = r
     base.health = healthOf(base.standing, v.view);
     // Structured fields only. Reason codes are written by guards, so only known shapes are shown.
     base.reports = v.rows.reports.map((x) => ({
-      outcome: x.outcome, txId: x.txId, payer: x.payer, amountUsd: x.amountMicroUsd / 1e6,
+      key: x.key, outcome: x.outcome, txId: x.txId, payer: x.payer, amountUsd: x.amountMicroUsd / 1e6,
       reason: /^[a-z-]{1,32}$/.test(x.reason) ? x.reason : "invalid", valid: x.valid, why: x.why, consensusTs: x.consensusTs, owner: x.owner,
     }));
-    base.probes = v.rows.probes.map((x) => ({ result: x.result, txId: x.txId, consensusTs: x.consensusTs }));
+    base.probes = v.rows.probes.map((x) => ({ key: x.key, result: x.result, txId: x.txId, consensusTs: x.consensusTs }));
     base.rebuttals = v.rows.rebuttals.map((x) => ({ reason: /^[a-z-]{1,32}$/.test(x.reason) ? x.reason : "invalid", filedAt: x.filedAt, signer: x.signer }));
   } catch (e) {
     base.error = safeError(e);

@@ -1,6 +1,6 @@
 "use client";
 import type { ReactNode } from "react";
-import { Chip, hashscanTx, HASHSCAN, short, usd } from "./components/bits";
+import { arkivEntity, Chip, hashscanTx, HASHSCAN, short, usd } from "./components/bits";
 import { HealthMeter } from "./components/health-meter";
 import { Icon } from "./components/icons";
 
@@ -56,14 +56,14 @@ export function MerchantDetail({ m, now }: { m: any; now: number }) {
           <div className="scroll">
             <table>
               <caption className="sr-only">Reports for {m.name ?? m.payTo}</caption>
-              <thead><tr><th scope="col">Report</th><th scope="col">Amount</th><th scope="col">Why</th><th scope="col">Proof</th></tr></thead>
+              <thead><tr><th scope="col">Report</th><th scope="col">Amount</th><th scope="col">Why</th><th scope="col">Arkiv entity</th></tr></thead>
               <tbody>
                 {m.reports.slice(0, 8).map((r: any, i: number) => (
                   <tr key={`${r.txId}${r.owner}${i}`}>
                     <td><Chip v={r.valid ? r.outcome : "expired"}>{r.valid ? r.outcome : "ignored"}</Chip></td>
                     <td className="num">{usd(r.amountUsd)}</td>
                     <td className="muted">{r.valid ? r.reason : r.why}</td>
-                    <td><a className="mono" href={hashscanTx(r.txId)} target="_blank" rel="noreferrer">{short(r.txId, 8)}</a></td>
+                    <td>{r.key ? <a className="mono" href={arkivEntity(r.key)} target="_blank" rel="noreferrer" title="The report on Arkiv: its attributes and the transaction that wrote it">{short(r.key, 6)}</a> : "—"}</td>
                   </tr>
                 ))}
               </tbody>
@@ -72,7 +72,7 @@ export function MerchantDetail({ m, now }: { m: any; now: number }) {
         </details>
       )}
       {m.probes.length > 0 && (
-        <p className="muted" style={{ marginTop: 10 }}>Probes: {m.probes.slice(0, 4).map((p: any) => <a key={p.txId} className="mono" href={hashscanTx(p.txId)} target="_blank" rel="noreferrer" style={{ marginRight: 8 }}>{p.result}</a>)}</p>
+        <p className="muted" style={{ marginTop: 10 }}>Probes: {m.probes.slice(0, 4).map((p: any) => <a key={p.txId} className="mono" href={p.key ? arkivEntity(p.key) : hashscanTx(p.txId)} target="_blank" rel="noreferrer" style={{ marginRight: 8 }}>{p.result}</a>)}</p>
       )}
       {m.rebuttals.length > 0 && <p className="muted">Rebuttal: {m.rebuttals[0].reason}, signed by <span className="mono">{short(m.rebuttals[0].signer, 6)}</span></p>}
     </>
