@@ -4,7 +4,7 @@ All entities are wallet-owned and expiring. An entity is data, never a verdict: 
 
 ## `leash.report`
 
-Filed automatically by the paying guard after its delivery check.
+Filed automatically by the paying guard after its delivery check. **Owner and creator:** the paying agent's wallet, the address derived from its Hedera key.
 
 | Column | Type | Indexed | Meaning |
 | --- | --- | --- | --- |
@@ -25,11 +25,11 @@ The signed message is `leash.report:v1|ns|txId|payee|outcome|amountMicroUsd|arki
 
 ## `leash.rebuttal`
 
-Signed by the wallet holding `ROLE_SET_TEXT` on the merchant resolver's `leash.rebuttal` key. The name must also declare that payee in ENS, so nobody can burn another merchant's rebuttal. It queues a probe and never unblocks alone. Columns: `ns`, `payee`, `ens`, `reason` (enum), `evidenceHash`, `episodeStart`, `filedAt`, `signer`, `signature` (bytes), `v`. Free text is never stored.
+**Owner and creator:** the prober wallet, which writes it. It is signed by the wallet holding `ROLE_SET_TEXT` on the merchant resolver's `leash.rebuttal` key. The name must also declare that payee in ENS, so nobody can burn another merchant's rebuttal. It queues a probe and never unblocks alone. Columns: `ns`, `payee`, `ens`, `reason` (enum), `evidenceHash`, `episodeStart`, `filedAt`, `signer`, `signature` (bytes), `v`. Free text is never stored.
 
 ## `leash.probe`
 
-Written by allow-listed prober wallets after a real paid retest. Columns: `ns`, `payee`, `result` (`pass` or `fail`), `txId`, `consensusTs`, `amountMicroUsd`, `deliveryDigest`, `v`.
+**Owner and creator:** the prober wallet, after a real paid retest. Readers count a probe only if an allow-listed prober created it. Columns: `ns`, `payee`, `result` (`pass` or `fail`), `txId`, `consensusTs`, `amountMicroUsd`, `deliveryDigest`, `v`.
 
 ## Expiry
 
@@ -41,10 +41,18 @@ Expiry is the forgiveness mechanism: when evidence expires, so do the strikes bu
 
 ## Query
 
-Newest reports for one payee, with a page of up to 100 rows:
+Newest reports for one payee, with a page of up to 100 rows. Through the SDK:
 
 ```ts
 publicClient.select().from(ReportSchema)
   .where(and(eq("ns", "mumbai-1"), eq("payee", "0.0.123")))
   .orderBy(desc("consensusTs")).limit(100).fetch();
+```
+
+The same query over JSON-RPC, with nothing installed and no key, for the weather merchant in `mumbai-prod`:
+
+```bash
+curl -s https://rpc.rabdi.db-chain.testnet.arkiv.network -H 'content-type: application/json' --data @- <<'EOF'
+{"jsonrpc":"2.0","id":1,"method":"arkiv_query","params":["arkiv.schema = str('leash.report') AND ns = str('mumbai-prod') AND payee = str('0.0.11323813') ORDER BY consensusTs:u64 DESC",{"select":{"key":true,"owner":true,"creator":true,"expiresAt":true,"attributes":{"outcome":true,"txId":true,"payer":true}},"limit":"0x64"}]}
+EOF
 ```

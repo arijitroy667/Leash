@@ -24,16 +24,28 @@ The site also has a landing page, docs, SDK and MCP setup, and a live demo page 
 npx tsx apps/demo/src/arkiv-query.ts mumbai-prod 0.0.11323813
 ```
 
+Or with nothing installed, straight to Arkiv's public RPC on the Rabdi testnet. It returns the reports filed against the weather merchant's payee, newest first:
+
+```bash
+curl -s https://rpc.rabdi.db-chain.testnet.arkiv.network -H 'content-type: application/json' --data @- <<'EOF'
+{"jsonrpc":"2.0","id":1,"method":"arkiv_query","params":["arkiv.schema = str('leash.report') AND ns = str('mumbai-prod') AND payee = str('0.0.11323813') ORDER BY consensusTs:u64 DESC",{"select":{"key":true,"owner":true,"creator":true,"expiresAt":true,"attributes":{"outcome":true,"txId":true,"payer":true}},"limit":"0x64"}]}
+EOF
+```
+
 ## Proof on public networks
 
 Every link is a real testnet event. The lemon and probe payments come from a rehearsal, and are replaced after the final run.
 
-| Event | Link |
-| --- | --- |
-| Good payment, with no human (production profile) | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793896157-209108345) |
-| Payment to lemon, which then delivered junk | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793896231-823642241) |
-| Probe payment after a rebuttal | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793896292-479701920) |
-| HCS audit topic, with decision and denial messages (`0.0.11326849`, messages 1 and 14) | [HashScan](https://hashscan.io/testnet/topic/0.0.11326849) |
+| Event | Hedera transaction ID | Link |
+| --- | --- | --- |
+| Good payment, with no human (production profile) | `0.0.7162784@1793896157.209108345` | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793896157-209108345) |
+| Payment to lemon, which then delivered junk | `0.0.7162784@1793896231.823642241` | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793896231-823642241) |
+| Probe payment after a rebuttal | `0.0.7162784@1793896292.479701920` | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793896292-479701920) |
+| An MCP tool call that paid with no human (`pnpm mcp:live`) | `0.0.7162784@1793928541.149077514` | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793928541-149077514) |
+| An escalated payment, paid once the owner's signature approved it | `0.0.7162784@1793928699.604292744` | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793928699-604292744) |
+| HCS audit topic `0.0.11326849`, with every decision, report, approval, probe and rebuttal | | [HashScan](https://hashscan.io/testnet/topic/0.0.11326849) |
+
+The transaction ID's account, `0.0.7162784`, is the Blocky402 facilitator, which pays the network fee. The USDC moves from the agent's account to the merchant's, as each HashScan page shows.
 
 **Hedera x402.** We use the Blocky402 facilitator. Its `GET /supported` returns `{"scheme":"exact","network":"hedera:testnet","extra":{"feePayer":"0.0.7162784"}}`. That output does not list assets: we pin USDC `0.0.429274` in the guard, and DENY anything else as `unsupported-asset`. No report counts until Mirror Node confirms the payment succeeded, in that token, with that payer, payee and amount, and the payer's key has signed it.
 
@@ -45,17 +57,44 @@ Every link is a real testnet event. The lemon and probe payments come from a reh
 | Agent B | `0.0.11323809` | `0x01312fA81A82b2a254f77f0eF0e8Ee4Bfc4b5D2C` |
 | Agent C | `0.0.11323811` | `0xAC7685aa37b232dA98623F657838453333693983` |
 | Prober | `0.0.11323812` | `0x0C8e8B9f0B9d5ddE7f3939e97094f6FA16793674` |
+| Funder 1, standing in for agent A | `0.0.11231351` | `0xd490Ac8EF3Ff4C10DF13a5da7125c7E9bA9F70C8` |
+| Funder 2, standing in for agent B | `0.0.11231593` | `0xff65B8e047B772e52360A855A85Ac8A377Bfb7F0` |
 
-Rehearsals also used the two funder accounts as agents, because new agents count at half weight for their first 24 hours.
+The two funder accounts write reports when they stand in for agents A and B, in rehearsals and the filmed run, because new agents count at half weight for their first 24 hours. These six wallets wrote every Leash entity. The guards have filed 150 reports so far (100 good, 50 bad), each logged on the audit topic with its Arkiv entity key. The failure tests also wrote deliberate flood and forged rows, from agent B's wallet, in `rehearsal-*` namespaces.
 
 **ENSv2 on Sepolia**
 
-| Name | Resolver | Role |
-| --- | --- | --- |
-| `leash-weather.eth` | `0x27B85f92dF5975ABda37fFD14F0ad56b87BC00F2` | Honest merchant |
-| `leash-lemon.eth` | `0x7f77622E13638dEd82B78C277d2B825d37E50300` | Takes payment and returns junk, on purpose |
+| Name | Registered | Permissioned Resolver | Role |
+| --- | --- | --- | --- |
+| `leash-weather.eth` | [tx](https://sepolia.etherscan.io/tx/0xfb221a6208ae20faf5b6730dc08acfeac71b2f6bad80715aaff814ce36bf0427) | [`0x27B85f92dF5975ABda37fFD14F0ad56b87BC00F2`](https://sepolia.etherscan.io/address/0x27B85f92dF5975ABda37fFD14F0ad56b87BC00F2) | Honest merchant |
+| `leash-lemon.eth` | [tx](https://sepolia.etherscan.io/tx/0xc5ff82de88f34612b4117b3dbd04461e43933e3ef45c288128296e3632887981) | [`0x7f77622E13638dEd82B78C277d2B825d37E50300`](https://sepolia.etherscan.io/address/0x7f77622E13638dEd82B78C277d2B825d37E50300) | Takes payment and returns junk, on purpose |
 
-Each name has `leash.*` text records. `0xa51B1B8EC0608FA2DafEC4E3D5D67a7348C0B5d7` holds `ROLE_SET_TEXT` for only the `leash.rebuttal` key on the lemon resolver, and that role is what lets it file a rebuttal. Names and records are read live and are not hard-coded in the guard. The merchants are run by the team, which we disclose: lemon is a real merchant behaving badly on purpose.
+**ENSv2 features we use**, all on ENS's own Sepolia deployments:
+
+| Feature | How Leash uses it |
+| --- | --- |
+| `ETHRegistrar` `0xf633e7fc17e2bbe0d0965d18ec1821dcb754a3d3` | Registers each merchant's `.eth` name |
+| A Permissioned Resolver per name, deployed through `VerifiableFactory` from `PermissionedResolverImpl` | Holds the merchant's payment declaration in `leash.*` text records: `payTo`, `network`, `asset`, `maxPrice`, `domains`, `schema`, `probeUrl` and `policyVersion`. The guard reads it before every payment, so a spoofed payTo, a foreign domain or a price above `leash.maxPrice` is denied. One resolver per merchant means a role on it covers only that merchant |
+| Enhanced Access Control, scoped to one text key | `0xa51B1B8EC0608FA2DafEC4E3D5D67a7348C0B5d7` holds `ROLE_SET_TEXT` on lemon's resolver for the `leash.rebuttal` key only. It files lemon's rebuttal by writing that record, and it cannot set `leash.payTo` or `leash.maxPrice`. Readers accept a rebuttal only if its signer holds that role |
+| Universal Resolver `0xeEeEEEeE14D718C2B47D9923Deab1335E144EeEe`, which resolves ENSv2 | Every lookup goes through it, so the guard has no resolver address built in |
+
+Check the role yourself: on `0x7f77622E13638dEd82B78C277d2B825d37E50300`, `hasRoles(uint256(keccak256("leash.rebuttal")), 16, 0xa51B…B5d7)` returns true, and the same call with `leash.payTo` returns false. Names and records are read live and are not hard-coded in the guard. The merchants are run by the team, which we disclose: lemon is a real merchant behaving badly on purpose.
+
+## Sponsor tracks
+
+| Track | Requirement | Where it is met |
+| --- | --- | --- |
+| Hedera x402 | An x402 endpoint that settles on Hedera testnet through a listed facilitator | The merchants in `apps/merchant` settle USDC through Blocky402, which Hedera's docs list. See the transaction IDs above |
+| | An agent that completes a paid request with no human | Agent A through the SDK, and agent C through the MCP server, in the table above |
+| | README covering setup, architecture and payment flow, with a settled transaction ID | [Run it](#run-it), [How it fits together](#how-it-fits-together) with the happy-path sequence, and the proof table |
+| | Demo video showing a payment settle, with its HashScan page | In the ETHGlobal submission |
+| | Extra points | Spending controls enforced before signing: session and daily budgets, per-merchant caps, a per-call ceiling and owner approval above limits. HCS topic `0.0.11326849` as the audit log of every decision. Settlement in the HTS token USDC `0.0.429274` |
+| Arkiv | Writes to the current testnet with `@arkiv-network/sdk`, and a feature users see reads it | Reports, probes and rebuttals on Rabdi. Every guard decision and the explorer's health bars read them |
+| | Writer wallets and a query to run | The writer wallets table and the `curl` query above |
+| | `arkiv/schema.md`, `arkiv/friction.md` and one file per judging criterion | [`arkiv/`](arkiv/) |
+| | Open-source licence, and how AI was used | MIT, and [Disclosures](#disclosures) |
+| ENSv2 | Built on ENSv2 on Sepolia, central to the product | Every payment is checked against the merchant's ENSv2 declaration, and rebuttals rest on a key-scoped Enhanced Access Control role. See the ENSv2 tables above |
+| | A functional live demo, not hard-coded | https://leash-explorer.vercel.app reads ENS, Arkiv and Mirror Node live |
 
 ## How it fits together
 
@@ -331,9 +370,9 @@ The PRD asks for any rule it does not contain to be recorded here, with a reason
 
 ## Disclosures
 
-- **AI use:** this project was built with Claude Code, which wrote most of the code under the team's direction.
-- **Pre-existing work:** `Leash PRDv2.1.md` is planning material written before any code, and is disclosed as such. No code predates 15:03 IST on Nov 5, 2026.
-- **Commit history:** the first commit squashes 11 earlier commits made between 15:03 and 21:03 IST on Nov 5, 2026. Later commits are dated as they happen.
+- **AI use:** we used Claude Code throughout, in a spec-driven workflow. Where: it reviewed the team's PRD and revised it into v2.1, planned the build in `BUILD_PLAN.md`, and wrote most of the code, tests and docs in every package, one iteration at a time. How: the team decided what to build and in what order, supplied the funder, Arkiv and ENS keys and the test funds, made the product decisions it raised, reviewed each iteration's report and made every commit by hand. The spec files are in the repo: `Leash PRDv2.1.md` and `BUILD_PLAN.md`.
+- **Timeline:** hacking started at 13:00 IST on Nov 5, 2026. `Leash PRDv2.1.md` was revised from the team's PRD v2.0, dated Nov 3, between 10:43 and 11:22 IST that morning, before hacking began. It is planning material only. The build started at 14:55 IST, and no code predates it. Rules changed during the build are recorded in "Changes from PRD v2.1" above.
+- **Commit history:** the build was first committed in 11 commits between 15:03 and 21:03 IST on Nov 5. At 21:11 IST the team had them squashed into the first commit, `1744b3b`, and the earlier commits no longer exist. Later commits are dated as they happen.
 - **Testnets:** Hedera testnet, Arkiv testnet and ENSv2 on Sepolia, with test tokens. ENS's Sepolia registrar charges fees in its own test token, named `MockUSDC`. We deploy no mock contracts.
 - **Live profile:** the demo uses a disclosed policy profile, by default 1 policy day = 18 real seconds with blocks of 1, 2 and 5 minutes. The screen always shows the values in use. See `arkiv/friction.md`.
 

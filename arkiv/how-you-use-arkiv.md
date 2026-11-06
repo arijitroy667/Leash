@@ -2,6 +2,30 @@
 
 SDK `@arkiv-network/sdk` 1.0.1 on chain `rabdi`. The adapter is `packages/guard/src/arkiv.ts`, and columns are listed in `schema.md`.
 
+## Each Arkiv feature, and what users see because of it
+
+| Arkiv feature | How Leash uses it | What users see |
+| --- | --- | --- |
+| Indexed attributes, `eq` on `ns` and `payee` | The standing query before every payment | The verdict their agent gets, and the merchant's health bar in the explorer |
+| `eq` on `payer` | Each bad reporter's history, for the limit of 5 a day | A flood of bad reports from one wallet cannot block a merchant |
+| `eq` on `domain` | Finds a merchant from its website | `leash_check_merchant` and the explorer's lookup accept a domain |
+| `eq` on `txId`, with `$creator` | Checks before writing, so one payment gives one report | No double counting, even when a write is retried |
+| `$creator` | A probe counts only if an allow-listed prober created it | Probe results in the explorer; a forged probe handed to the prober's address is ignored (F13) |
+| A numeric attribute, `consensusTs`, sorted newest first, with `lte` | Newest evidence first, and rows dated in the future are never fetched | The latest reports with their HashScan links; a flood of fake newer rows cannot hide real ones (F15) |
+| Expiry | Evidence lives 60 days in production and 18 minutes on the demo clock | Blocks end and health bars recover when the evidence behind them expires |
+| `count` | Live totals per namespace | The registry counts on the landing page, which fall as entities expire |
+| Reads with no access key | The public explorer holds no secret | Anyone can look a merchant up, with no login or wallet |
+
+## Who can edit each entity
+
+Leash creates every entity with Arkiv's default flags, so only its owner can update, delete or extend it, or hand it to another wallet. Leash writes each entity once and never edits it.
+
+- **An edited report** no longer matches its signature, so every reader ignores it.
+- **A deleted report** is the same as one that expired early: a reporter can withdraw its own claim, never anyone else's.
+- **A probe handed to the prober's address** still does not count, because readers check its creator, which never changes.
+
+This fits a registry of claims: the writer answers for its own row, and the reader decides what counts.
+
 ## Write path
 
 A write never holds up a payment or a response.
