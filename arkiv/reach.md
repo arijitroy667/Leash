@@ -36,9 +36,9 @@ Yes, with no account:
 - **Put it in an agent:** https://leash-explorer.vercel.app/integrate has the SDK code and the MCP config for Claude Desktop and Claude Code.
 - **Check our claims:** `pnpm mcp:live` runs every MCP tool against the live merchants and checks each payment on Hedera, each report on Arkiv and each decision on the audit topic.
 
-## What comes next
+## Will we keep building it after Mumbai?
 
-These are the gaps the code already points to:
+Yes. These are the next steps, from the gaps the code already points to:
 
 - **Open the prober allow-list:** each reader trusts only probers it chooses, and ours trusts only our own prober.
 - **More reporters:** agents protect each other only when they read the same namespace, so the next step is other teams' agents filing into `mumbai-prod`.

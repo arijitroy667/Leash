@@ -16,7 +16,7 @@ An agent's payment gets one of three verdicts before anything is signed:
 
 **Public explorer:** https://leash-explorer.vercel.app/explorer
 
-The site also has a landing page, docs, SDK and MCP setup, and a live demo page showing the guards' audit trail as it lands on Hedera. It reads ENSv2, Arkiv and Hedera Mirror Node directly, and holds no keys or database. The registry menu switches between the demo registry (live profile, entities expire in 18 minutes) and `mumbai-prod` (production profile, 60-day expiry).
+The site also has a landing page, docs, SDK and MCP setup, and a live demo page showing the guards' audit trail as it lands on Hedera. It reads ENSv2, Arkiv and Hedera Mirror Node directly, and holds no keys or database. It opens on `mumbai-prod`, which runs the production profile and keeps evidence for 60 days: there, lemon is blocked until Nov 11 by two agents' verified bad reports, and weather is in good standing. The registry menu also has the demo registry, `mumbai-1`, whose entities expire 18 minutes after a run.
 
 **Query the registry yourself**, with no key or wallet:
 
@@ -40,6 +40,7 @@ Every link is a real testnet event. The lemon and probe payments come from a reh
 | --- | --- | --- |
 | Good payment, with no human (production profile) | `0.0.7162784@1793896157.209108345` | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793896157-209108345) |
 | Payment to lemon, which then delivered junk | `0.0.7162784@1793896231.823642241` | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793896231-823642241) |
+| Two agents' payments to lemon, which delivered junk. Their bad reports block lemon in `mumbai-prod` | `0.0.7162784@1793932584.042346265` and `0.0.7162784@1793932587.359527068` | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793932584-042346265), [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793932587-359527068) |
 | Probe payment after a rebuttal | `0.0.7162784@1793896292.479701920` | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793896292-479701920) |
 | An MCP tool call that paid with no human (`pnpm mcp:live`) | `0.0.7162784@1793928541.149077514` | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793928541-149077514) |
 | An escalated payment, paid once the owner's signature approved it | `0.0.7162784@1793928699.604292744` | [HashScan](https://hashscan.io/testnet/transaction/0.0.7162784-1793928699-604292744) |
