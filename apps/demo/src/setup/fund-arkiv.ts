@@ -7,7 +7,7 @@ import { appendFileSync } from "node:fs";
 import { createPublicClient, createWalletClient } from "@arkiv-network/sdk";
 import { rabdi } from "@arkiv-network/sdk/chains";
 import { formatEther, http, parseEther } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import { generatePrivateKey, privateKeyToAccount } from "viem/accounts";
 
 const env = process.env;
 const hex = (k: string) => (k.startsWith("0x") ? k : `0x${k}`) as `0x${string}`;
@@ -24,7 +24,14 @@ for (const n of [1, 2]) {
   console.log(`AGENT_F${n} is ${id}`);
 }
 
-const wallets = ["AGENT_A_KEY", "AGENT_B_KEY", "AGENT_C_KEY", "PROBER_KEY", "FUNDER_1_KEY", "FUNDER_2_KEY"].map((k) => ({ name: k.replace("_KEY", ""), account: privateKeyToAccount(hex(env[k]!)) }));
+// The public site's only key. It writes merchant listings to Arkiv, so it holds tGLM and nothing else.
+if (!env.LEASH_REGISTRAR_KEY) {
+  env.LEASH_REGISTRAR_KEY = generatePrivateKey();
+  appendFileSync(".env", `\nLEASH_REGISTRAR_KEY=${env.LEASH_REGISTRAR_KEY}\n`);
+  console.log(`LEASH_REGISTRAR_KEY created for ${privateKeyToAccount(hex(env.LEASH_REGISTRAR_KEY)).address}`);
+}
+
+const wallets = ["AGENT_A_KEY", "AGENT_B_KEY", "AGENT_C_KEY", "PROBER_KEY", "FUNDER_1_KEY", "FUNDER_2_KEY", "LEASH_REGISTRAR_KEY"].map((k) => ({ name: k.replace("_KEY", ""), account: privateKeyToAccount(hex(env[k]!)) }));
 const balances = await Promise.all(wallets.map((w) => pub.getBalance({ address: w.account.address })));
 const richest = balances.indexOf(balances.reduce((a, b) => (a > b ? a : b)));
 const from = wallets[richest]!;

@@ -131,6 +131,17 @@ All five are real x402 servers on their own origins, run by the team. Lemon and 
 | [spoof](https://leash-merchant-spoof.vercel.app) | claims `leash-weather.eth` | `0.0.11323815` | Impersonates weather with its own account | DENY `declared-mismatch` |
 | [rogue](https://leash-merchant-rogue.vercel.app) | none | `0.0.11323818` | No identity at all | ESCALATE `unknown-merchant` |
 
+### List your own merchant
+
+Any merchant with an ENSv2 name on Sepolia can join the registry from the explorer's **[Create merchant](https://leash-explorer.vercel.app/explorer/new)** page:
+
+1. **Prove control.** Connect the wallet that holds `ROLE_SET_TEXT` on the name's Permissioned Resolver. The page checks the role live.
+2. **Policy.** Upload a policy file, or fill in `payTo`, max price, domains, probe URL and response fields. Network and asset are fixed to Hedera testnet USDC.
+3. **Publish.** One transaction from your wallet writes the `leash.*` records to your own resolver.
+4. **Sign and list.** Your wallet signs the policy as it stands on ENS. Leash checks the signature and the role. If you declared a probe URL, it also checks that an unpaid request gets a 402 that claims your name and asks your declared account, network and asset, within your max price. Then its registrar writes a [`leash.merchant`](arkiv/schema.md#leashmerchant) entity to Arkiv.
+
+A listing earns no trust by itself. The merchant starts as NEW, under the new-merchant budgets, and only verified deliveries raise its health. ENS keeps the last word: the explorer drops a listing whose name no longer declares that payee.
+
 ## Built on Hedera, Arkiv and ENSv2
 
 Each network does the one job it is best at. Payments and the audit trail are on **Hedera**, shared evidence is on **Arkiv**, and merchant identity and policy are on **ENSv2**.
@@ -144,7 +155,7 @@ Each network does the one job it is best at. Payments and the audit trail are on
 
 ### Arkiv: the shared registry
 
-Reports, probes and rebuttals are Arkiv entities on the Rabdi testnet, written with `@arkiv-network/sdk`. Each is **owned by the wallet that paid**, and **expires on its own**: after 60 days in production, or 18 minutes on the demo clock. Expiry is the forgiveness model. Reads need no key, so the public explorer holds no secrets. The submission files are in [`arkiv/`](arkiv/): [schema](arkiv/schema.md), [friction](arkiv/friction.md), [reach](arkiv/reach.md), [why Arkiv](arkiv/why-arkiv.md) and [how we use it](arkiv/how-you-use-arkiv.md).
+Reports, probes and rebuttals are Arkiv entities on the Rabdi testnet, written with `@arkiv-network/sdk`. Each is **owned by the wallet that paid**, and **expires on its own**: after 60 days in production, or 18 minutes on the demo clock. Expiry is the forgiveness model. Reads need no key. The public explorer holds a single one, the registrar's, which can write merchant listings and nothing else. The submission files are in [`arkiv/`](arkiv/): [schema](arkiv/schema.md), [friction](arkiv/friction.md), [reach](arkiv/reach.md), [why Arkiv](arkiv/why-arkiv.md) and [how we use it](arkiv/how-you-use-arkiv.md).
 
 **Writer wallets**
 
@@ -156,8 +167,9 @@ Reports, probes and rebuttals are Arkiv entities on the Rabdi testnet, written w
 | Prober | `0.0.11323812` | `0x0C8e8B9f0B9d5ddE7f3939e97094f6FA16793674` |
 | Funder 1, standing in for agent A | `0.0.11231351` | `0xd490Ac8EF3Ff4C10DF13a5da7125c7E9bA9F70C8` |
 | Funder 2, standing in for agent B | `0.0.11231593` | `0xff65B8e047B772e52360A855A85Ac8A377Bfb7F0` |
+| Registrar, merchant listings only | none | `0x07cb5E23E542454b469A19C8E0A529177f42Bec1` |
 
-These six wallets wrote every Leash entity. The two funders write reports when they stand in for agents A and B, in rehearsals and the filmed run, because new wallets count at half weight for their first 24 hours. The guards have filed more than 150 reports, each logged on the audit topic with its Arkiv entity key. The failure tests also wrote deliberate flood and forged rows from agent B's wallet, in `rehearsal-*` namespaces.
+These seven wallets wrote every Leash entity. The two funders write reports when they stand in for agents A and B, in rehearsals and the filmed run, because new wallets count at half weight for their first 24 hours. The guards have filed more than 150 reports, each logged on the audit topic with its Arkiv entity key. The failure tests also wrote deliberate flood and forged rows from agent B's wallet, in `rehearsal-*` namespaces.
 
 ### ENSv2: merchant identity and policy
 

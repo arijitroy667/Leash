@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { parseAbi, verifyMessage, keccak256, toBytes, type PublicClient } from "viem";
 import { normalize } from "viem/ens";
-import { REPORTER_BAD_PER_DAY, reporterExcess, type Evidence, type Report } from "@leash/core";
+import { REPORTER_BAD_PER_DAY, reporterExcess, type Declaration, type Evidence, type Report } from "@leash/core";
 import { ARKIV_PAGE, READER_CAP, type Arkiv, type ProbeRow, type RebuttalRow, type ReportRow } from "./arkiv.ts";
 import { validAccount, validName, type Ens } from "./ens.ts";
 import { verifyHederaSignature, type Mirror, type TxFacts } from "./mirror.ts";
@@ -11,6 +11,10 @@ export const reportMessage = (r: { ns: string; txId: string; payee: string; outc
 
 export const rebuttalMessage = (r: { ns: string; ens: string; payee: string; reason: string; evidenceHash: string; filedAt: number }) =>
   `leash.rebuttal:v1|${r.ns}|${r.ens}|${r.payee}|${r.reason}|${r.evidenceHash}|${r.filedAt}`;
+
+/** What a merchant's wallet signs to be listed: readable in the wallet, and bound to the policy it publishes now. */
+export const listingMessage = (l: { ns: string; ens: string; payee: string; policyVersion: number; signedAt: number }) =>
+  `Leash: list my merchant\n\nName: ${l.ens}\nPays to: ${l.payee} on Hedera testnet\nPolicy version: ${l.policyVersion}\nRegistry: ${l.ns}\nSigned at: ${l.signedAt}`;
 
 export const REBUTTAL_REASONS = ["outage", "config-error", "payment-mismatch", "dispute-customer-error", "compromised-key-rotated"] as const;
 
@@ -24,8 +28,11 @@ const RESOLVER_ROLES = parseAbi([
 ]);
 
 /** The rebuttal right is ROLE_SET_TEXT on the merchant resolver's leash.rebuttal key. */
-export async function holdsRebuttalRole(client: PublicClient, resolver: `0x${string}`, signer: `0x${string}`): Promise<boolean> {
-  const resource = BigInt(keccak256(toBytes("leash.rebuttal")));
+export const holdsRebuttalRole = (client: PublicClient, resolver: `0x${string}`, signer: `0x${string}`) => holdsTextRole(client, resolver, signer, "leash.rebuttal");
+
+/** ROLE_SET_TEXT on one text key of an ENSv2 Permissioned Resolver, scoped to that key or held at its root. */
+export async function holdsTextRole(client: PublicClient, resolver: `0x${string}`, signer: `0x${string}`, key: string): Promise<boolean> {
+  const resource = BigInt(keccak256(toBytes(key)));
   const [scoped, root] = await Promise.all([
     client.readContract({ address: resolver, abi: RESOLVER_ROLES, functionName: "hasRoles", args: [resource, ROLE_SET_TEXT, signer] }),
     client.readContract({ address: resolver, abi: RESOLVER_ROLES, functionName: "hasRootRoles", args: [ROLE_SET_TEXT, signer] }),
@@ -239,4 +246,41 @@ export async function payeesForDomain(arkiv: Arkiv, ens: Ens, origin: string): P
   }
   if (declared.length) return declared;
   return [...new Set(seen.map((r) => r.payee))].map((payTo) => ({ name: null, payTo }));
+}
+
+type Offer = { payTo?: string; network?: string; asset?: string; amount?: string; maxAmountRequired?: string; extra?: { leashEns?: string } };
+
+/**
+ * A merchant's declared endpoint, asked without paying: its 402 must claim this ENS name and ask the declared payee,
+ * network and asset for no more than the declared max. The URL is merchant-supplied, so only https on the default
+ * port to a named host is fetched, and redirects are not followed.
+ */
+export async function checkEndpoint(ens: string, d: Declaration, get: typeof fetch = fetch): Promise<{ ok: true; amountUsd: number } | { ok: false; why: string }> {
+  let url: URL;
+  try {
+    url = new URL(d.probeUrl ?? "");
+  } catch {
+    return { ok: false, why: "leash.probeUrl is not a URL" };
+  }
+  if (url.protocol !== "https:" || url.port || url.username || !/^([a-z0-9-]+\.)+[a-z][a-z0-9-]+$/i.test(url.hostname)) {
+    return { ok: false, why: "leash.probeUrl must be https on a named host" };
+  }
+  if (!d.domains.includes(url.origin)) return { ok: false, why: `leash.domains does not list ${url.origin}` };
+  const res = await get(url, { redirect: "manual", signal: AbortSignal.timeout(8000) }).catch(() => null);
+  if (!res) return { ok: false, why: "the endpoint did not answer" };
+  if (res.status !== 402) return { ok: false, why: `the endpoint answered ${res.status} to an unpaid request, not 402` };
+  let accepts: Offer[];
+  try {
+    const header = res.headers.get("payment-required"); // x402 v2; v1 puts the requirements in the body
+    accepts = (header ? JSON.parse(Buffer.from(header, "base64").toString("utf8")) : await res.json()).accepts ?? [];
+  } catch {
+    return { ok: false, why: "the 402 carries no readable x402 payment requirements" };
+  }
+  const offer = accepts.find((a) => a.payTo === d.payTo);
+  if (!offer) return { ok: false, why: `the endpoint asks payment to ${accepts.map((a) => a.payTo).join(", ") || "nobody"}, not ${d.payTo}` };
+  if (offer.network !== d.network || offer.asset !== d.asset) return { ok: false, why: `the endpoint charges ${offer.asset} on ${offer.network}, not ${d.asset} on ${d.network}` };
+  if (offer.extra?.leashEns !== ens) return { ok: false, why: `the 402 does not claim ${ens}, so agents could not find this policy` };
+  const amountUsd = Number(offer.amount ?? offer.maxAmountRequired) / 1e6;
+  if (!(amountUsd <= d.maxPriceUsd)) return { ok: false, why: `the endpoint asks $${amountUsd}, above the declared max of $${d.maxPriceUsd}` };
+  return { ok: true, amountUsd };
 }

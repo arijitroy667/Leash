@@ -1,6 +1,7 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Skeleton } from "../components/bits";
+import { Icon } from "../components/icons";
 import { HealthLegend } from "../components/health-meter";
 import { usePoll } from "../components/live";
 import { LazyTile, useClock, type Entry } from "../components/merchant-tile";
@@ -11,6 +12,15 @@ export default function Explorer() {
   const [ns, setNs] = useState("");
   const [query, setQuery] = useState("");
   const [active, setActive] = useState("");
+  // ?q= and ?ns= open a lookup directly, as the create page links to its new merchant.
+  useEffect(() => {
+    const p = new URLSearchParams(location.search);
+    if (p.get("ns")) setNs(p.get("ns")!);
+    if (p.get("q")) {
+      setQuery(p.get("q")!);
+      setActive(p.get("q")!);
+    }
+  }, []);
   const list = usePoll<any>(`/api/explorer${ns ? `?ns=${encodeURIComponent(ns)}` : ""}`, 20000);
   const found = usePoll<any>(active ? `/api/explorer?key=${encodeURIComponent(active)}${ns ? `&ns=${encodeURIComponent(ns)}` : ""}` : null, 8000);
   const d = list.data;
@@ -25,14 +35,17 @@ export default function Explorer() {
           <h1 style={{ marginTop: 12 }}>Merchant explorer</h1>
           <p className="lead">Every merchant in the registry, read live from ENSv2 on Sepolia, Arkiv and Hedera Mirror Node. Each report is re-verified against its real payment before it counts; a row with no proof shows as ignored.</p>
         </div>
-        {d?.namespaces?.length > 1 && (
-          <div className="field">
-            <label htmlFor="registry">Registry</label>
-            <select id="registry" value={registry} onChange={(e) => { setNs(e.target.value); setActive(""); }}>
-              {d.namespaces.map((n: any) => <option key={n.ns} value={n.ns}>{n.ns} ({n.profile === "live" ? "live clock" : "production"})</option>)}
-            </select>
-          </div>
-        )}
+        <div className="row start" style={{ alignItems: "end" }}>
+          {d?.namespaces?.length > 1 && (
+            <div className="field">
+              <label htmlFor="registry">Registry</label>
+              <select id="registry" value={registry} onChange={(e) => { setNs(e.target.value); setActive(""); }}>
+                {d.namespaces.map((n: any) => <option key={n.ns} value={n.ns}>{n.ns} ({n.profile === "live" ? "live clock" : "production"})</option>)}
+              </select>
+            </div>
+          )}
+          <a className="btn primary" href={`/explorer/new${registry ? `?ns=${encodeURIComponent(registry)}` : ""}`}><Icon name="plus" /> Create merchant</a>
+        </div>
       </div>
 
       {d && <ProfileBanner profile={d.profile} note={d.policyNote} />}

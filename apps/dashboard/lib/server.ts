@@ -1,7 +1,8 @@
 import { resolve } from "node:path";
 import { config } from "dotenv";
 import { riskScore, type Standing, type StandingView } from "@leash/core";
-import { buildAgent, buildReader, parseDeclaration, safeError, validAccount, validName } from "@leash/guard";
+import { privateKeyToAccount } from "viem/accounts";
+import { buildAgent, buildReader, parseDeclaration, safeError, validAccount, validName, type ListingRow } from "@leash/guard";
 
 /** Public mode serves the read-only site: no database file, no keys, no approvals, no demo runner. */
 export const PUBLIC_MODE = process.env.LEASH_PUBLIC === "1";
@@ -45,15 +46,45 @@ export function knownMerchants(): { name: string | null; payTo?: string }[] {
 }
 
 /**
- * Every merchant in the registry: this deployment's own, then every payee named in the newest report rows. A row
- * only claims a payee and a name, so a name is kept only if its ENS declaration really names that payee.
+ * The only key the public site holds: it writes merchant listings to Arkiv and nothing else, so it carries testnet
+ * gas only. Unset, the listing desk is closed and listings are not read.
  */
-export async function listMerchants(r: Reader): Promise<{ key: string; name: string | null; payTo: string | null; source: "deployment" | "registry" }[]> {
+export function registrar(): { key: `0x${string}`; address: `0x${string}` } | null {
+  const k = process.env.LEASH_REGISTRAR_KEY?.trim();
+  if (!k) return null;
+  const key = (k.startsWith("0x") ? k : `0x${k}`) as `0x${string}`;
+  return { key, address: privateKeyToAccount(key).address };
+}
+
+type Listed = { key: string; name: string | null; payTo: string | null; source: "deployment" | "listed" | "registry"; endpoint?: "verified" | "none" };
+
+/**
+ * Every merchant in the registry: this deployment's own, then the merchants that listed themselves, then every payee
+ * named in the newest report rows. A row or a listing only claims a payee and a name, so a name is kept only if its
+ * ENS declaration still names that payee.
+ */
+export async function listMerchants(r: Reader): Promise<Listed[]> {
   const own = knownMerchants();
   const ownPayTo = new Set(own.map((m) => m.payTo).filter(Boolean));
-  const out: { key: string; name: string | null; payTo: string | null; source: "deployment" | "registry" }[] = own.map((m) => ({ key: m.name ?? m.payTo!, name: m.name, payTo: m.payTo ?? null, source: "deployment" }));
+  const out: Listed[] = own.map((m) => ({ key: m.name ?? m.payTo!, name: m.name, payTo: m.payTo ?? null, source: "deployment" }));
   const declared = await Promise.all(own.filter((m) => m.name).map((m) => r.ens.fetch(m.name!).then((d) => d?.payTo).catch(() => undefined)));
   for (const p of declared) if (p) ownPayTo.add(p);
+  // The newest listing per name. One whose name now declares another payee is stale and dropped.
+  const reg = registrar();
+  const newest = new Map<string, ListingRow>();
+  for (const l of reg ? await r.arkiv.listings(reg.address).catch(() => []) : []) {
+    if (validName(l.ens) && validAccount(l.payee) && !newest.has(l.ens)) newest.set(l.ens, l);
+  }
+  const listings = [...newest.values()].slice(0, 30);
+  const live = await Promise.all(listings.map((l) => r.ens.fetch(l.ens).then((d) => d?.payTo === l.payee).catch(() => false)));
+  for (const [i, l] of listings.entries()) {
+    if (!live[i]) continue;
+    const mine = out.find((m) => m.name === l.ens); // one of this deployment's own merchants listed itself too
+    if (mine) Object.assign(mine, { source: "listed", endpoint: l.endpoint });
+    if (mine || ownPayTo.has(l.payee)) continue;
+    ownPayTo.add(l.payee);
+    out.push({ key: l.ens, name: l.ens, payTo: l.payee, source: "listed", endpoint: l.endpoint });
+  }
   const rows = await r.arkiv.recentPayees().catch(() => []);
   for (const row of rows.filter((x) => validAccount(x.payee) && !ownPayTo.has(x.payee)).slice(0, 60)) {
     const claimed = validName(row.ens) ? row.ens : null;

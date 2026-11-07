@@ -44,6 +44,30 @@ export const ProbeSchema = defineSchema("leash.probe", {
   v: i32(),
 });
 
+/** A merchant's own listing, signed by a wallet that can set its ENS policy. ENS keeps the last word on every read. */
+export const ListingSchema = defineSchema("leash.merchant", {
+  ns: str().indexed(),
+  ens: str().indexed(),
+  payee: str().indexed(),
+  policyVersion: u64(),
+  endpoint: str(), // "verified": its 402 claims this name and pays the declared account; "none": no endpoint declared
+  signedAt: u64().indexed(),
+  signer: str(),
+  signature: bytes(),
+  v: i32(),
+});
+
+export interface ListingRow {
+  key?: string;
+  ens: string;
+  payee: string;
+  policyVersion: number;
+  endpoint: "verified" | "none";
+  signedAt: number;
+  signer: string;
+  signature: string;
+}
+
 export const REPORT_VERSION = 1;
 export const READER_CAP = 200;
 export const ARKIV_PAGE = 100;
@@ -184,9 +208,27 @@ export class Arkiv {
     }));
   }
 
+  /** Listings written by the registrar only, as probes are trusted by creator, so a flood of rows cannot bury them. */
+  async listings(registrar: string): Promise<ListingRow[]> {
+    const res = await this.pub.select().from(ListingSchema).where(eq("ns", this.ns)).createdBy(registrar as `0x${string}`)
+      .orderBy(desc("signedAt")).limit(PAGE).fetch();
+    return res.entities.map((r: any) => ({
+      key: r.$key, ens: txt(r.ens), payee: txt(r.payee), policyVersion: num(r.policyVersion), endpoint: txt(r.endpoint) === "verified" ? "verified" : "none",
+      signedAt: num(r.signedAt), signer: txt(r.signer), signature: txt(r.signature),
+    }));
+  }
+
+  async writeListing(key: `0x${string}`, l: Omit<ListingRow, "key">, ttlSec: number) {
+    return this.writer(key).createEntity(ListingSchema, {
+      ns: this.ns, ens: l.ens, payee: l.payee, policyVersion: u64(BigInt(l.policyVersion)), endpoint: l.endpoint,
+      signedAt: u64(BigInt(l.signedAt)), signer: l.signer, signature: hexToBytes(l.signature as `0x${string}`), v: i32(REPORT_VERSION),
+    }, { expiration: ExpirationTime.fromSeconds(ttlSec) });
+  }
+
   /** Every entity of one kind in this registry, newest first, with its key, so a page can link each write to the explorer. */
-  async recent(kind: "report" | "probe" | "rebuttal", limit = PAGE) {
-    const [schema, by] = kind === "report" ? [ReportSchema, "consensusTs"] : kind === "probe" ? [ProbeSchema, "consensusTs"] : [RebuttalSchema, "filedAt"];
+  async recent(kind: "report" | "probe" | "rebuttal" | "merchant", limit = PAGE) {
+    const [schema, by] = kind === "report" ? [ReportSchema, "consensusTs"] : kind === "probe" ? [ProbeSchema, "consensusTs"]
+      : kind === "merchant" ? [ListingSchema, "signedAt"] : [RebuttalSchema, "filedAt"];
     const res = await (this.pub.select().from(schema as typeof ReportSchema).where(eq("ns", this.ns)) as any).orderBy(desc(by)).limit(limit).fetch();
     return res.entities as any[];
   }

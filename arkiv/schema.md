@@ -31,11 +31,15 @@ The signed message is `leash.report:v1|ns|txId|payee|outcome|amountMicroUsd|arki
 
 **Owner and creator:** the prober wallet, after a real paid retest. Readers count a probe only if an allow-listed prober created it. Columns: `ns`, `payee`, `result` (`pass` or `fail`), `txId`, `consensusTs`, `amountMicroUsd`, `deliveryDigest`, `v`.
 
+## `leash.merchant`
+
+**Owner and creator:** the registrar wallet, `0x07cb5E23E542454b469A19C8E0A529177f42Bec1`, the only key the public site holds. A merchant lists itself on the explorer's **Create merchant** page. The registrar writes the entity only after checking the signature from a wallet that holds `ROLE_SET_TEXT` on the name's Permissioned Resolver. The signature covers the policy as it stands on ENS. If the merchant declares an endpoint, its unpaid 402 must claim the name and ask the declared payee. Readers take listings from the registrar only, newest per name, and drop one whose name no longer declares that payee. Columns: `ns`, `ens`, `payee`, `policyVersion`, `endpoint` (`verified` or `none`), `signedAt`, `signer`, `signature` (bytes), `v`.
+
 ## Expiry
 
 | Entity | Production | Live profile |
 | --- | --- | --- |
-| All three | 60 days | 18 minutes by default: 60 policy days, or twice the total of the blocks if longer |
+| All four | 60 days | 18 minutes by default: 60 policy days, or twice the total of the blocks if longer |
 
 Expiry is the forgiveness mechanism: when evidence expires, so do the strikes built on it, so no merchant is blocked forever. The PRD's 30-day rebuttal expiry is simplified to match reports, since a rebuttal only matters while a block it refers to is still in evidence.
 

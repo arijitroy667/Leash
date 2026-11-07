@@ -5,7 +5,7 @@ import { Chip, Skeleton } from "./bits";
 import { HealthMeter } from "./health-meter";
 import { usePoll, useInView } from "./live";
 
-export interface Entry { key: string; name: string | null; payTo: string | null; source?: "deployment" | "registry" }
+export interface Entry { key: string; name: string | null; payTo: string | null; source?: "deployment" | "listed" | "registry"; endpoint?: "verified" | "none" }
 
 export function useClock() {
   const [now, setNow] = useState(Date.now() / 1000);
@@ -30,6 +30,11 @@ export function LazyTile({ entry, ns, now, details = true }: { entry: Entry; ns?
           <div className="row start" style={{ gap: 6, marginTop: 6 }}>
             {m ? <Chip v={m.standing} /> : <span className="skeleton" style={{ width: 70, height: 22, display: "inline-block" }} />}
             {entry.source === "registry" && <span className="chip">found on Arkiv</span>}
+            {entry.source === "listed" && (
+              <span title={entry.endpoint === "verified" ? "Listed by the wallet that controls its ENS name; its endpoint's 402 claims the name and pays the declared account" : "Listed by the wallet that controls its ENS name; no endpoint declared"}>
+                <Chip v="pass">{entry.endpoint === "verified" ? "listed · endpoint verified" : "listed by owner"}</Chip>
+              </span>
+            )}
           </div>
         </div>
         {m ? <HealthMeter health={m.health} standing={m.standing} /> : <div className="meter" data-status="none" aria-hidden="true">{[0, 1, 2, 3, 4].map((i) => <span key={i} className="seg" />)}</div>}

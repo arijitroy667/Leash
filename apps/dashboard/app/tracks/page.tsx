@@ -168,14 +168,14 @@ function Arkiv({ ns }: { ns: string }) {
           </Panel>
           <Panel title={`Writes: every entity in ${d.namespace} (${d.writes.length})`} note="Each entity links to its page on the Rabdi explorer, which shows the transaction that created it. Reports and probes also link the Hedera payment they cite. Expiry is forgiveness: when an entity expires, it stops counting.">
             <div className="row start" role="group" aria-label="Entity kind" style={{ marginBottom: 12 }}>
-              {["all", "report", "probe", "rebuttal"].map((k) => <button key={k} type="button" className={kind === k ? "primary" : undefined} aria-pressed={kind === k} onClick={() => setKind(k)}>{k === "all" ? "All" : `leash.${k}`} ({k === "all" ? d.writes.length : d.writes.filter((w: any) => w.kind === k).length})</button>)}
+              {["all", "report", "probe", "rebuttal", "merchant"].map((k) => <button key={k} type="button" className={kind === k ? "primary" : undefined} aria-pressed={kind === k} onClick={() => setKind(k)}>{k === "all" ? "All" : `leash.${k}`} ({k === "all" ? d.writes.length : d.writes.filter((w: any) => w.kind === k).length})</button>)}
             </div>
             <div className="scroll" style={{ maxHeight: 520 }}>
               <table>
                 <thead><tr><th scope="col">Entity</th><th scope="col">Merchant</th><th scope="col">Written by</th><th scope="col">Block</th><th scope="col">Expires in</th><th scope="col">Arkiv</th><th scope="col">Payment</th></tr></thead>
                 <tbody>{writes.map((w: any) => (
                   <tr key={w.key}>
-                    <td><Chip v={w.kind === "rebuttal" ? "PROBATION" : w.outcome}>{w.kind} {w.outcome}</Chip></td>
+                    <td><Chip v={w.kind === "rebuttal" ? "PROBATION" : w.kind === "merchant" ? "pass" : w.outcome}>{w.kind} {w.outcome}</Chip></td>
                     <td>{w.ens ?? <span className="mono">{w.payee}</span>}</td>
                     <td><A href={`${ARKIV_X}/address/${w.creator}`}>{short(w.creator, 6)}</A></td>
                     <td className="num">{w.createdBlock}</td>
@@ -206,6 +206,7 @@ function Ens({ ns }: { ns: string }) {
         ["done", "Built on ENSv2 on Sepolia, with ENS's own ETHRegistrar, Permissioned Resolver and Universal Resolver", <A key="e" href={`${REPO}#proof-on-public-networks`}>README: ENSv2 features</A>],
         ["done", "ENSv2 is central: the guard reads each merchant's payment policy from its Permissioned Resolver before every payment, and denies a mismatch", "Policy check, below"],
         ["done", "Enhanced Access Control: one wallet may edit only the leash.rebuttal record", "Role matrix, below"],
+        ["done", "Self-serve merchants: a wallet that holds the text role on its own Permissioned Resolver publishes its policy, signs, and is listed", <a key="n" href="/explorer/new">Create a merchant</a>],
         ["done", "Functional demo with no hard-coded values: every record on this page is read live from Sepolia", "This page"],
         ["todo", "Live demo link and open-source code on GitHub", "Repo goes public at submission"],
         ["no", "Bonus: agents as namespaces (only merchants have names)"],

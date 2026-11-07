@@ -3,7 +3,7 @@ import { keccak256, parseAbi, toBytes } from "viem";
 import { normalize } from "viem/ens";
 import { DEFAULT_LIMITS, HARD_CAP_MULTIPLE, policySummary, SOFT_CAPS } from "@leash/core";
 import { LEASH_KEYS, ROLE_SET_TEXT, safeError, validAccount, validName } from "@leash/guard";
-import { auditAccounts, knownMerchants, namespaces, reader } from "../../../lib/server";
+import { auditAccounts, knownMerchants, namespaces, reader, registrar } from "../../../lib/server";
 
 export const dynamic = "force-dynamic";
 
@@ -25,14 +25,16 @@ const timed = async <T,>(f: () => Promise<T>) => {
 
 /** Every write in the registry, each linked to its entity (and so its create transaction) on the Rabdi explorer. */
 async function arkiv(r: ReturnType<typeof reader>) {
-  const [reports, probes, rebuttals, block] = await Promise.all([
-    r.arkiv.recent("report"), r.arkiv.recent("probe"), r.arkiv.recent("rebuttal"), r.arkiv.blockNumber().then(Number),
+  const reg = registrar();
+  const [reports, probes, rebuttals, listings, block] = await Promise.all([
+    r.arkiv.recent("report"), r.arkiv.recent("probe"), r.arkiv.recent("rebuttal"), r.arkiv.recent("merchant"), r.arkiv.blockNumber().then(Number),
   ]);
   const base = (e: any) => ({ key: String(e.$key), creator: String(e.$creator), owner: String(e.$owner), createdBlock: Number(e.$createdAt), expiresInSec: Math.max(0, (Number(e.$expiresAt) - block) * 2) });
   const writes = [
     ...reports.map((e) => ({ ...base(e), kind: "report", payee: str(e.payee), ens: validName(str(e.ens)) ? str(e.ens) : null, outcome: str(e.outcome), txId: str(e.txId), payer: str(e.payer), amountUsd: num(e.amountMicroUsd) / 1e6, at: num(e.consensusTs) })),
     ...probes.map((e) => ({ ...base(e), kind: "probe", payee: str(e.payee), ens: null, outcome: str(e.result), txId: str(e.txId), payer: null, amountUsd: num(e.amountMicroUsd) / 1e6, at: num(e.consensusTs) })),
     ...rebuttals.map((e) => ({ ...base(e), kind: "rebuttal", payee: str(e.payee), ens: validName(str(e.ens)) ? str(e.ens) : null, outcome: /^[a-z-]{1,32}$/.test(str(e.reason)) ? str(e.reason) : "invalid", txId: null, payer: null, amountUsd: 0, at: num(e.filedAt) })),
+    ...listings.map((e) => ({ ...base(e), kind: "merchant", payee: str(e.payee), ens: validName(str(e.ens)) ? str(e.ens) : null, outcome: str(e.endpoint) === "verified" ? "endpoint-verified" : "listed", txId: null, payer: null, amountUsd: 0, at: num(e.signedAt) })),
   ].filter((w) => validAccount(w.payee)).sort((a, b) => b.at - a.at);
 
   // The reads the guard makes before a payment, run now against the weather merchant. Reads cost nothing and write no transaction.
@@ -49,6 +51,7 @@ async function arkiv(r: ReturnType<typeof reader>) {
     { what: "One reporter's bad reports, for the daily limit", when: "While verifying each bad report", query: `leash.report  ns = '${ns}' AND payer = '${payer}' AND outcome = 'bad'  ORDER BY consensusTs DESC`, run: () => r.arkiv.badReportsByPayer(payer).then((x) => x.length) },
     { what: "Reports naming a domain", when: "Explorer lookup by domain", query: `leash.report  ns = '${ns}' AND domain = '${origin}'  ORDER BY consensusTs DESC`, run: () => r.arkiv.reportsByDomain(origin).then((x) => x.length) },
     { what: "Has this writer already filed this payment?", when: "Before writing a report (no duplicates)", query: `leash.report  ns = '${ns}' AND txId = '<txId>' AND $creator = <writer>  LIMIT 1`, run: async () => (writes[0]?.txId ? Number(await r.arkiv.hasReport(writes[0].txId, writes[0].creator)) : 0) },
+    { what: "Merchant listings by the registrar only", when: "Explorer list", query: `leash.merchant  ns = '${ns}' AND $creator = ${reg?.address ?? "registrar"}  ORDER BY signedAt DESC`, run: () => (reg ? r.arkiv.listings(reg.address).then((x) => x.length) : Promise.resolve(0)) },
     { what: "Live entity counts", when: "Explorer summary", query: `COUNT leash.report | leash.probe | leash.rebuttal  WHERE ns = '${ns}'`, run: () => r.arkiv.counts().then((c) => c.reports + c.probes + c.rebuttals) },
   ];
   const queries = await Promise.all(q.map(async ({ run, ...x }) => {
