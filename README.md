@@ -14,7 +14,7 @@ Before an agent signs a payment, Leash checks who it is paying, what other agent
 
 [**Quick guide**](https://app.trupeer.ai/view/cENkVXWeo/leash-x-402-payment-guard) · [**Explorer**](https://leash-explorer.vercel.app/explorer) · [**Partner tracks**](https://leash-explorer.vercel.app/tracks) · [**Docs**](https://leash-explorer.vercel.app/docs) · [**Integrate**](https://leash-explorer.vercel.app/integrate)
 
-*Built at ETHGlobal Mumbai 2026. Everything runs on public testnets, with nothing mocked.*
+*Built at ETHGlobal Mumbai 2026.*
 
 </div>
 
