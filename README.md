@@ -521,7 +521,7 @@ The PRD asks for any rule it does not contain to be recorded here, with a reason
 ## Disclosures
 
 - **AI use:** we used Claude Code throughout, in a spec-driven workflow.
-  - *Where:* it reviewed the team's PRD and revised it into v2.1, planned the build in `BUILD_PLAN.md`, and wrote most of the code, tests and docs in every package, one iteration at a time.
+  - *Where:* it reviewed the team's PRD and revised it into v2.1, planned the build in `BUILD_PLAN.md`, and wrote most of the code, tests and docs in every package.
   - *How:* the team decided what to build and in what order. It supplied the funder, Arkiv and ENS keys and the test funds, and made the product decisions Claude Code raised. It reviewed each iteration's report and made every commit by hand.
   - *Spec files:* `Leash PRDv2.1.md` and `BUILD_PLAN.md`, in the repo.
 - **Testnets:** Hedera testnet, Arkiv testnet and ENSv2 on Sepolia, with test tokens. ENS's Sepolia registrar charges fees in its own test token, named `MockUSDC`. We deploy no mock contracts.
