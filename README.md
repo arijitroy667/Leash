@@ -524,8 +524,6 @@ The PRD asks for any rule it does not contain to be recorded here, with a reason
   - *Where:* it reviewed the team's PRD and revised it into v2.1, planned the build in `BUILD_PLAN.md`, and wrote most of the code, tests and docs in every package, one iteration at a time.
   - *How:* the team decided what to build and in what order. It supplied the funder, Arkiv and ENS keys and the test funds, and made the product decisions Claude Code raised. It reviewed each iteration's report and made every commit by hand.
   - *Spec files:* `Leash PRDv2.1.md` and `BUILD_PLAN.md`, in the repo.
-- **Timeline:** hacking started at 13:00 IST on Nov 5, 2026. `Leash PRDv2.1.md` was revised from the team's PRD v2.0, dated Nov 3, between 10:43 and 11:22 IST that morning, before hacking began. It is planning material only. The build started at 14:55 IST, and no code predates it. Rules changed during the build are recorded in [Changes from PRD v2.1](#changes-from-prd-v21).
-- **Commit history:** the build was first committed in 11 commits between 15:03 and 21:03 IST on Nov 5. At 21:11 IST the team had them squashed into the first commit, `1744b3b`, and the earlier commits no longer exist. Later commits are dated as they happen.
 - **Testnets:** Hedera testnet, Arkiv testnet and ENSv2 on Sepolia, with test tokens. ENS's Sepolia registrar charges fees in its own test token, named `MockUSDC`. We deploy no mock contracts.
 - **Merchants:** all five merchants are run by the team. Lemon and spoof misbehave on purpose, to show what the guard catches.
 - **Live profile:** the demo uses a disclosed policy profile, by default 1 policy day = 18 real seconds with blocks of 1, 2 and 5 minutes. The screen always shows the values in use. See [`arkiv/friction.md`](arkiv/friction.md).
